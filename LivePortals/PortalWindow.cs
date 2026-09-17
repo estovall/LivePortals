@@ -160,6 +160,7 @@ namespace LivePortals
             // and clouds around it are right, and put the relief where that makes the far ring coincide with c.
             Quaternion map = rB * Flip * Quaternion.Inverse(rA);
             _anchor.transform.SetPositionAndRotation(pe - map * (pe - c), rB);
+            _anchor.transform.localScale = Vector3.one * Plugin.DepthScale.Value; // scales the relief about the far ring centre
             _cam.transform.SetPositionAndRotation(pe, map * Quaternion.LookRotation(vn, vu));
             _cam.projectionMatrix = Matrix4x4.Frustum(l, r, b, t, near, far);
 

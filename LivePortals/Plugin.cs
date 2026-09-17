@@ -20,7 +20,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "LivePortals";
-        public const string VERSION = "0.3.2";
+        public const string VERSION = "0.3.3";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -40,6 +40,8 @@ namespace LivePortals
         internal static ConfigEntry<float> RingCenterOffset;
         internal static ConfigEntry<float> PaneForwardOffset;
         internal static ConfigEntry<bool> PaneRound;
+        internal static ConfigEntry<float> DepthScale;
+        internal static ConfigEntry<bool> TuneKeys;
 
         /// <summary>
         /// World position of the portal ring's centre, where the pane sits and captures are taken from. The
@@ -115,6 +117,11 @@ namespace LivePortals
                 new ConfigDescription("Vertical nudge of the pane and capture point, metres.",
                     new AcceptableValueRange<float>(-1f, 1f)));
             PaneRound = Config.Bind("2. Window", "PaneRound", true, "Round pane (the ring's shape) instead of a square.");
+            DepthScale = Config.Bind("2. Window", "DepthScale", 1f,
+                new ConfigDescription("Scale of the captured world behind the window. 1 = true size; below 1 brings it closer and larger, above 1 pushes it away.",
+                    new AcceptableValueRange<float>(0.2f, 5f)));
+            TuneKeys = Config.Bind("2. Window", "TuneKeys", true,
+                "Numpad tuning while in game: 8/2 ring height, 4/6 forward offset, 7/9 pane width, 1/3 pane height, +/- depth scale, 5 prints and saves. Values are saved to this file.");
             PaneForwardOffset = Config.Bind("2. Window", "PaneForwardOffset", 0f,
                 new ConfigDescription("Pane offset along the portal's forward axis, metres. Nudge if it fights the frame or the swirl.",
                     new AcceptableValueRange<float>(-1f, 1f)));
@@ -168,6 +175,7 @@ namespace LivePortals
             if (!Enabled.Value) return;
             var player = Player.m_localPlayer;
             if (player == null || GameCamera.instance == null) return;
+            if (TuneKeys.Value && player.TakeInput() && !Hud.InRadial()) UpdateTuneKeys(player);
             _scanTimer -= Time.deltaTime;
             if (_scanTimer > 0f) return;
             _scanTimer = 0.5f;
@@ -193,6 +201,32 @@ namespace LivePortals
                 else if (w != null) w.SetSuppressed(true);
             }
         }
+
+        // ------------------------------------------------------------------
+        // Live tuning keys (numpad). Each press nudges a config value, shows all of them on screen and logs them.
+        // ------------------------------------------------------------------
+        private void UpdateTuneKeys(Player player)
+        {
+            bool changed = false;
+            if (ZInput.GetKeyDown(KeyCode.Keypad8, false)) { RingCenterOffset.Value = Round(RingCenterOffset.Value + 0.05f); changed = true; }
+            if (ZInput.GetKeyDown(KeyCode.Keypad2, false)) { RingCenterOffset.Value = Round(RingCenterOffset.Value - 0.05f); changed = true; }
+            if (ZInput.GetKeyDown(KeyCode.Keypad6, false)) { PaneForwardOffset.Value = Round(PaneForwardOffset.Value + 0.05f); changed = true; }
+            if (ZInput.GetKeyDown(KeyCode.Keypad4, false)) { PaneForwardOffset.Value = Round(PaneForwardOffset.Value - 0.05f); changed = true; }
+            if (ZInput.GetKeyDown(KeyCode.Keypad9, false)) { PaneWidth.Value = Round(PaneWidth.Value + 0.05f); changed = true; }
+            if (ZInput.GetKeyDown(KeyCode.Keypad7, false)) { PaneWidth.Value = Round(PaneWidth.Value - 0.05f); changed = true; }
+            if (ZInput.GetKeyDown(KeyCode.Keypad3, false)) { PaneHeight.Value = Round(PaneHeight.Value + 0.05f); changed = true; }
+            if (ZInput.GetKeyDown(KeyCode.Keypad1, false)) { PaneHeight.Value = Round(PaneHeight.Value - 0.05f); changed = true; }
+            if (ZInput.GetKeyDown(KeyCode.KeypadPlus, false)) { DepthScale.Value = Round(DepthScale.Value * 1.05f); changed = true; }
+            if (ZInput.GetKeyDown(KeyCode.KeypadMinus, false)) { DepthScale.Value = Round(DepthScale.Value / 1.05f); changed = true; }
+            bool print = ZInput.GetKeyDown(KeyCode.Keypad5, false);
+            if (!changed && !print) return;
+            Config.Save();
+            string s = $"ring height +{RingCenterOffset.Value:0.00}  fwd {PaneForwardOffset.Value:0.00}  pane {PaneWidth.Value:0.00}x{PaneHeight.Value:0.00}  depth x{DepthScale.Value:0.00}";
+            player.Message(MessageHud.MessageType.Center, "LivePortals: " + s);
+            Log.LogInfo("LivePortals tune: " + s);
+        }
+
+        private static float Round(float v) => Mathf.Round(v * 100f) / 100f;
 
         // ------------------------------------------------------------------
         // Captures
