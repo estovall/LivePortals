@@ -30,7 +30,7 @@ Nothing is needed on the server and nothing changes for players without the mod.
 | --- | --- | --- |
 | `RangeMultiplier` / `FullMultiplier` | 4 / 1 | Where the window starts to appear and where it is fully visible, as multiples of the portal's activation range |
 | `PaneWidth` / `PaneHeight` / `RingCenterOffset` / `PaneForwardOffset` | 2.7 / 2.8 / -0.35 / 0 | The pane size, a vertical nudge of the ring centre (found from the portal model), and a forward nudge, metres. Numpad keys tune these in game (see `TuneKeys`) |
-| `CaptureResolution` | 512 | Pixels per captured cube face (six faces per portal) |
+| `CaptureResolution` / `CapturePoints` | 768 / 3 | Pixels per captured face, and how many points across the ring each portal is captured from |
 | `WindowResolution` | 768 | Pixels the window is drawn at each frame |
 | `CaptureOnDeparture` / `CaptureOnArrival` | on / on | Which trips capture |
 | `DepartureDelay` / `ArrivalDelay` | 0.8 / 0.15 s | When the captures happen, timed to fall under the black screen |

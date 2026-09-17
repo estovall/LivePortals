@@ -7,9 +7,10 @@ using UnityEngine;
 namespace LivePortals
 {
     /// <summary>
-    /// Captures live on disk under BepInEx/config/LivePortals/&lt;world&gt;/: six PNG faces and a small text file
-    /// with the lighting they were taken under. Keyed by the portal's network ID, so they survive restarts and
-    /// are found again from whichever portal is paired with it.
+    /// Captures live on disk under BepInEx/config/LivePortals/&lt;world&gt;/: per capture point, six PNG faces, six
+    /// depth maps and six backdrops, plus one text file per portal with the lighting and the point offsets.
+    /// Keyed by the portal's network ID, so they survive restarts and are found again from whichever portal is
+    /// paired with it.
     /// </summary>
     internal static class Storage
     {
@@ -24,31 +25,42 @@ namespace LivePortals
             return dir;
         }
 
-        private static string FacePath(string dir, string key, int i) => Path.Combine(dir, key + "_" + i + ".png");
-        private static string DepthPath(string dir, string key, int i) => Path.Combine(dir, key + "_d" + i + ".png");
-        private static string BackPath(string dir, string key, int i) => Path.Combine(dir, key + "_b" + i + ".png");
+        private static string FacePath(string dir, string key, int p, int i) => Path.Combine(dir, key + "_p" + p + "_" + i + ".png");
+        private static string DepthPath(string dir, string key, int p, int i) => Path.Combine(dir, key + "_p" + p + "_d" + i + ".png");
+        private static string BackPath(string dir, string key, int p, int i) => Path.Combine(dir, key + "_p" + p + "_b" + i + ".png");
         private static string MetaPath(string dir, string key) => Path.Combine(dir, key + ".txt");
 
-        internal static void Save(ZDOID id, PortalCapture cap)
+        internal static void Save(ZDOID id, CaptureSet set)
         {
             string dir = Dir(), key = Key(id);
-            for (int i = 0; i < 6; i++)
+            // Remove any older files for this portal so a smaller set does not leave stale points behind.
+            foreach (var f in Directory.GetFiles(dir, key + "_*.png")) File.Delete(f);
+            var lines = new System.Collections.Generic.List<string>
             {
-                File.WriteAllBytes(FacePath(dir, key, i), cap.Faces[i].EncodeToPNG());
-                if (cap.Depth[i] != null) File.WriteAllBytes(DepthPath(dir, key, i), EncodeDepth(cap.Depth[i], cap.DepthSize, cap.DepthRange));
-                if (cap.Backdrops[i] != null) File.WriteAllBytes(BackPath(dir, key, i), cap.Backdrops[i].EncodeToPNG());
+                "takenAt=" + set.TakenAt.ToString(CultureInfo.InvariantCulture),
+                "points=" + set.Captures.Count.ToString(CultureInfo.InvariantCulture),
+            };
+            for (int p = 0; p < set.Captures.Count; p++)
+            {
+                var cap = set.Captures[p];
+                for (int i = 0; i < 6; i++)
+                {
+                    File.WriteAllBytes(FacePath(dir, key, p, i), cap.Faces[i].EncodeToPNG());
+                    if (cap.Depth[i] != null) File.WriteAllBytes(DepthPath(dir, key, p, i), EncodeDepth(cap.Depth[i], cap.DepthSize, cap.DepthRange));
+                    if (cap.Backdrops[i] != null) File.WriteAllBytes(BackPath(dir, key, p, i), cap.Backdrops[i].EncodeToPNG());
+                }
+                Vector3 o = set.Offsets[p];
+                lines.Add($"p{p}.offset=" + V(o));
+                lines.Add($"p{p}.depthSize=" + cap.DepthSize.ToString(CultureInfo.InvariantCulture));
+                lines.Add($"p{p}.depthRange=" + cap.DepthRange.ToString("R", CultureInfo.InvariantCulture));
+                lines.Add($"p{p}.sun=" + C(cap.Sun));
+                lines.Add($"p{p}.ambient=" + C(cap.Ambient));
+                lines.Add($"p{p}.fog=" + C(cap.Fog));
+                lines.Add($"p{p}.dayFraction=" + cap.DayFraction.ToString("R", CultureInfo.InvariantCulture));
+                lines.Add($"p{p}.avgLum=" + cap.AverageLuminance.ToString("R", CultureInfo.InvariantCulture));
+                lines.Add($"p{p}.avgColor=" + C(cap.AverageColor));
             }
-            string meta = string.Join("\n", new[]
-            {
-                "takenAt=" + cap.TakenAt.ToString(CultureInfo.InvariantCulture),
-                "depthSize=" + cap.DepthSize.ToString(CultureInfo.InvariantCulture),
-                "depthRange=" + cap.DepthRange.ToString("R", CultureInfo.InvariantCulture),
-                "sun=" + C(cap.Sun), "ambient=" + C(cap.Ambient), "fog=" + C(cap.Fog),
-                "dayFraction=" + cap.DayFraction.ToString("R", CultureInfo.InvariantCulture),
-                "avgLum=" + cap.AverageLuminance.ToString("R", CultureInfo.InvariantCulture),
-                "avgColor=" + C(cap.AverageColor),
-            });
-            File.WriteAllText(MetaPath(dir, key), meta);
+            File.WriteAllText(MetaPath(dir, key), string.Join("\n", lines));
         }
 
         /// <summary>Unix time of the stored capture for this portal, or -1 if there is none.</summary>
@@ -62,63 +74,68 @@ namespace LivePortals
             return File.GetLastWriteTimeUtc(mp).Ticks;
         }
 
-        internal static PortalCapture Load(ZDOID id)
+        internal static CaptureSet Load(ZDOID id)
         {
             string dir = Dir(), key = Key(id);
-            if (!File.Exists(MetaPath(dir, key))) return null;
-            var cap = new PortalCapture();
+            string mp = MetaPath(dir, key);
+            if (!File.Exists(mp)) return null;
+            var set = new CaptureSet();
             try
             {
-                for (int i = 0; i < 6; i++)
-                {
-                    string fp = FacePath(dir, key, i);
-                    if (!File.Exists(fp)) { cap.Destroy(); return null; }
-                    var tex = new Texture2D(2, 2, TextureFormat.RGBA32, true);
-                    if (!tex.LoadImage(File.ReadAllBytes(fp), false)) { cap.Destroy(); return null; }
-                    tex.wrapMode = TextureWrapMode.Clamp;
-                    tex.filterMode = FilterMode.Bilinear;
-                    cap.Faces[i] = tex;
-                }
-                foreach (var line in File.ReadAllLines(MetaPath(dir, key)))
+                var meta = new System.Collections.Generic.Dictionary<string, string>();
+                foreach (var line in File.ReadAllLines(mp))
                 {
                     int eq = line.IndexOf('=');
-                    if (eq <= 0) continue;
-                    string k = line.Substring(0, eq), v = line.Substring(eq + 1);
-                    switch (k)
-                    {
-                        case "takenAt": long.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out cap.TakenAt); break;
-                        case "depthSize": int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out cap.DepthSize); break;
-                        case "depthRange": float.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out cap.DepthRange); break;
-                        case "sun": cap.Sun = P(v); break;
-                        case "ambient": cap.Ambient = P(v); break;
-                        case "fog": cap.Fog = P(v); break;
-                        case "dayFraction": float.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out cap.DayFraction); break;
-                        case "avgLum": float.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out cap.AverageLuminance); break;
-                        case "avgColor": cap.AverageColor = P(v); break;
-                    }
+                    if (eq > 0) meta[line.Substring(0, eq)] = line.Substring(eq + 1);
                 }
-                if (cap.DepthSize >= 2)
+                if (!meta.TryGetValue("points", out var ps) || !int.TryParse(ps, NumberStyles.Integer, CultureInfo.InvariantCulture, out int points) || points < 1)
+                    return null; // pre-0.6 layout: not readable, will be replaced by the next trip
+                if (meta.TryGetValue("takenAt", out var ta)) long.TryParse(ta, NumberStyles.Integer, CultureInfo.InvariantCulture, out set.TakenAt);
+                for (int p = 0; p < points; p++)
                 {
+                    var cap = new PortalCapture { TakenAt = set.TakenAt };
                     for (int i = 0; i < 6; i++)
                     {
-                        string dp = DepthPath(dir, key, i);
-                        cap.Depth[i] = File.Exists(dp) ? DecodeDepth(File.ReadAllBytes(dp), cap.DepthSize, cap.DepthRange) : null;
+                        string fp = FacePath(dir, key, p, i);
+                        if (!File.Exists(fp)) { cap.Destroy(); set.Destroy(); return null; }
+                        var tex = new Texture2D(2, 2, TextureFormat.RGBA32, true);
+                        if (!tex.LoadImage(File.ReadAllBytes(fp), false)) { cap.Destroy(); set.Destroy(); return null; }
+                        tex.wrapMode = TextureWrapMode.Clamp; tex.filterMode = FilterMode.Bilinear;
+                        cap.Faces[i] = tex;
+                        string bp = BackPath(dir, key, p, i);
+                        if (File.Exists(bp))
+                        {
+                            var bt = new Texture2D(2, 2, TextureFormat.RGBA32, true);
+                            if (bt.LoadImage(File.ReadAllBytes(bp), false)) { bt.wrapMode = TextureWrapMode.Clamp; bt.filterMode = FilterMode.Bilinear; cap.Backdrops[i] = bt; }
+                            else UnityEngine.Object.Destroy(bt);
+                        }
                     }
+                    string pre = "p" + p + ".";
+                    if (meta.TryGetValue(pre + "depthSize", out var ds)) int.TryParse(ds, NumberStyles.Integer, CultureInfo.InvariantCulture, out cap.DepthSize);
+                    if (meta.TryGetValue(pre + "depthRange", out var dr)) float.TryParse(dr, NumberStyles.Float, CultureInfo.InvariantCulture, out cap.DepthRange);
+                    if (meta.TryGetValue(pre + "sun", out var s)) cap.Sun = P(s);
+                    if (meta.TryGetValue(pre + "ambient", out var a)) cap.Ambient = P(a);
+                    if (meta.TryGetValue(pre + "fog", out var f)) cap.Fog = P(f);
+                    if (meta.TryGetValue(pre + "dayFraction", out var df)) float.TryParse(df, NumberStyles.Float, CultureInfo.InvariantCulture, out cap.DayFraction);
+                    if (meta.TryGetValue(pre + "avgLum", out var al)) float.TryParse(al, NumberStyles.Float, CultureInfo.InvariantCulture, out cap.AverageLuminance);
+                    if (meta.TryGetValue(pre + "avgColor", out var ac)) cap.AverageColor = P(ac);
+                    if (cap.DepthSize >= 2)
+                        for (int i = 0; i < 6; i++)
+                        {
+                            string dp = DepthPath(dir, key, p, i);
+                            cap.Depth[i] = File.Exists(dp) ? DecodeDepth(File.ReadAllBytes(dp), cap.DepthSize, cap.DepthRange) : null;
+                        }
+                    Vector3 off = Vector3.zero;
+                    if (meta.TryGetValue(pre + "offset", out var os)) off = PV(os);
+                    set.Captures.Add(cap);
+                    set.Offsets.Add(off);
                 }
-                for (int i = 0; i < 6; i++)
-                {
-                    string bp = BackPath(dir, key, i);
-                    if (!File.Exists(bp)) continue;
-                    var tex = new Texture2D(2, 2, TextureFormat.RGBA32, true);
-                    if (tex.LoadImage(File.ReadAllBytes(bp), false)) { tex.wrapMode = TextureWrapMode.Clamp; tex.filterMode = FilterMode.Bilinear; cap.Backdrops[i] = tex; }
-                    else UnityEngine.Object.Destroy(tex);
-                }
-                return cap;
+                return set;
             }
             catch (Exception e)
             {
                 Plugin.Log.LogWarning("LivePortals: could not load capture " + key + ": " + e.Message);
-                cap.Destroy();
+                set.Destroy();
                 return null;
             }
         }
@@ -157,12 +174,24 @@ namespace LivePortals
             c.b.ToString("R", CultureInfo.InvariantCulture), c.a.ToString("R", CultureInfo.InvariantCulture)
         });
 
+        private static string V(Vector3 v) => string.Join(",", new[]
+        {
+            v.x.ToString("R", CultureInfo.InvariantCulture), v.y.ToString("R", CultureInfo.InvariantCulture), v.z.ToString("R", CultureInfo.InvariantCulture)
+        });
+
         private static Color P(string s)
         {
             var parts = s.Split(',');
             if (parts.Length < 3) return Color.white;
             float r = F(parts[0]), g = F(parts[1]), b = F(parts[2]), a = parts.Length > 3 ? F(parts[3]) : 1f;
             return new Color(r, g, b, a);
+        }
+
+        private static Vector3 PV(string s)
+        {
+            var parts = s.Split(',');
+            if (parts.Length < 3) return Vector3.zero;
+            return new Vector3(F(parts[0]), F(parts[1]), F(parts[2]));
         }
 
         private static float F(string s) => float.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out float f) ? f : 0f;

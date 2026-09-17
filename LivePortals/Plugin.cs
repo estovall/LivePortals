@@ -20,7 +20,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "LivePortals";
-        public const string VERSION = "0.5.1";
+        public const string VERSION = "0.6.0";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -29,6 +29,7 @@ namespace LivePortals
         // ---- Config ----
         internal static ConfigEntry<bool> Enabled;
         internal static ConfigEntry<int> CaptureResolution;
+        internal static ConfigEntry<int> CapturePoints;
         internal static ConfigEntry<int> WindowResolution;
         internal static ConfigEntry<float> DepthRange;
         internal static ConfigEntry<int> DepthGrid;
@@ -90,9 +91,12 @@ namespace LivePortals
             Log = Logger;
 
             Enabled = Config.Bind("1. General", "Enabled", true, "Master switch.");
-            CaptureResolution = Config.Bind("1. General", "CaptureResolution", 512,
-                new ConfigDescription("Pixels per cube face captured at a portal. 512 is plenty; 1024 costs four times the disk and memory.",
+            CaptureResolution = Config.Bind("1. General", "CaptureResolution", 768,
+                new ConfigDescription("Pixels per cube face captured at a portal. 1024 costs almost twice the disk and memory of 768.",
                     new AcceptableValueRange<int>(128, 1024)));
+            CapturePoints = Config.Bind("1. General", "CapturePoints", 3,
+                new ConfigDescription("Capture from this many points across the ring (centre, then left/right, then up/down). More points fill in what one viewpoint cannot see behind near objects; each costs capture time, disk and memory.",
+                    new AcceptableValueRange<int>(1, 5)));
             WindowResolution = Config.Bind("1. General", "WindowResolution", 768,
                 new ConfigDescription("Pixels of the texture each window is drawn into every frame.",
                     new AcceptableValueRange<int>(256, 2048)));
@@ -292,25 +296,45 @@ namespace LivePortals
             CaptureAt(best, "arrival");
         }
 
-        private static void CaptureAt(TeleportWorld portal, string why)
+        private void CaptureAt(TeleportWorld portal, string why)
         {
-            var nview = portal.GetComponent<ZNetView>();
-            if (nview == null || !nview.IsValid()) return;
+            StartCoroutine(CaptureSeries(portal, why));
+        }
+
+        /// <summary>Capture the portal from several points across its ring, one point per frame, then store the set.</summary>
+        private IEnumerator CaptureSeries(TeleportWorld portal, string why)
+        {
+            var nview = portal != null ? portal.GetComponent<ZNetView>() : null;
+            if (nview == null || !nview.IsValid()) yield break;
             ZDOID id = nview.GetZDO().m_uid;
-            Vector3 pos = RingCenter(portal) + portal.transform.forward * 0.15f;
+            var set = new CaptureSet();
+            var offsets = CaptureSet.PointOffsets(CapturePoints.Value);
             Quaternion rot = portal.transform.rotation;
+            Vector3 centre = RingCenter(portal);
+            for (int k = 0; k < offsets.Length; k++)
+            {
+                if (portal == null) { set.Destroy(); yield break; }
+                Vector3 pos = centre + rot * offsets[k] + portal.transform.forward * 0.15f;
+                PortalCapture cap = null;
+                try { cap = Capture.Take(pos, rot, portal); }
+                catch (Exception e) { Log.LogWarning("LivePortals: capture failed: " + e); }
+                if (cap == null) { set.Destroy(); yield break; }
+                set.Captures.Add(cap);
+                set.Offsets.Add(offsets[k]);
+                if (k < offsets.Length - 1) yield return null;
+            }
+            set.TakenAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             try
             {
-                var cap = Capture.Take(pos, rot, portal);
-                if (cap == null) return;
-                Storage.Save(id, cap);
+                Storage.Save(id, set);
                 PortalWindow.NotifyCaptureUpdated(id);
-                Log.LogInfo($"LivePortals: {why} capture at portal {Storage.Key(id)} ({cap.Faces[0].width}px faces).");
+                Log.LogInfo($"LivePortals: {why} capture at portal {Storage.Key(id)}: {set.Captures.Count} points, {set.Primary.Faces[0].width}px faces.");
             }
             catch (Exception e)
             {
-                Log.LogWarning("LivePortals: capture failed: " + e);
+                Log.LogWarning("LivePortals: could not save capture: " + e);
             }
+            set.Destroy();
         }
     }
 

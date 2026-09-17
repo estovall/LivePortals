@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0
+
+- Multi-point capture: each portal is captured from several points across its ring (`CapturePoints`, default 3) and every point is drawn as its own relief, so what one viewpoint cannot see behind a near object is usually filled by another.
+- Foliage, grass and anything else without a collider now take the depth of the nearest solid thing below them (a canopy sits on its trunk, grass on its ground) instead of falling to the far plane.
+- Backdrops at full capture resolution; capture resolution default 768.
+- Fixed: things behind the far portal could show through the front (the window camera now clips at the pane). The portal itself (frame, runes, sign, glow) is hidden while it is captured.
+
 ## 0.5.0
 
 - Fixed: the window was mirrored left-right from the front of a portal (the sprite shader ignores texture scale, so the intended flip never happened). Parallax now moves the right way and text reads correctly. Found with the glass test.

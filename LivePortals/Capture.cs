@@ -31,6 +31,38 @@ namespace LivePortals
         }
     }
 
+    /// <summary>A set of captures of one portal from several points across its ring, each with its offset from the ring centre in the portal's frame.</summary>
+    internal class CaptureSet
+    {
+        public readonly List<PortalCapture> Captures = new List<PortalCapture>();
+        public readonly List<Vector3> Offsets = new List<Vector3>();
+        public long TakenAt;
+
+        public PortalCapture Primary => Captures.Count > 0 ? Captures[0] : null;
+
+        public void Destroy()
+        {
+            foreach (var c in Captures) c.Destroy();
+            Captures.Clear();
+            Offsets.Clear();
+        }
+
+        /// <summary>Capture point offsets in the portal's frame (x right, y up): the centre first, then across the ring.</summary>
+        internal static Vector3[] PointOffsets(int count)
+        {
+            var all = new[]
+            {
+                new Vector3(0f, 0f, 0f),
+                new Vector3(0.75f, 0f, 0f), new Vector3(-0.75f, 0f, 0f),
+                new Vector3(0f, 0.7f, 0f), new Vector3(0f, -0.7f, 0f),
+            };
+            count = Mathf.Clamp(count, 1, all.Length);
+            var res = new Vector3[count];
+            System.Array.Copy(all, res, count);
+            return res;
+        }
+    }
+
     internal static class Capture
     {
         // Face order: +Z (forward), -Z, -X (left), +X (right), +Y (up), -Y (down); rotations relative to the portal.
@@ -207,19 +239,33 @@ namespace LivePortals
                 }
             }
             if (hits.Count > 0) { hits.Sort(); median = hits[hits.Count / 2]; } else median = range;
+
+            // Misses on drawn pixels are foliage, grass and other things without colliders. Give them the depth of
+            // the nearest hit below them in the same column: a canopy takes its trunk or the ground at its foot,
+            // grass takes the ground it grows on. Only true sky stays at the range.
+            for (int x = 0; x < n; x++)
+            {
+                float carry = -1f;
+                for (int y = 0; y < n; y++)
+                {
+                    int i = y * n + x;
+                    int py = Mathf.RoundToInt(y / (float)(n - 1) * (res - 1)), px = Mathf.RoundToInt(x / (float)(n - 1) * (res - 1));
+                    bool isSky = sky[py * res + px];
+                    if (depth[i] < range) carry = depth[i];
+                    else if (!isSky && carry > 0f) depth[i] = carry;
+                }
+            }
             return depth;
         }
 
-        private const int BackdropRes = 256;
-
         /// <summary>
-        /// A background-only copy of the face at lower resolution: pixels on the near side of a depth jump are
-        /// removed and filled from the surrounding far pixels (or sky), so what shows through a gap in the relief
-        /// is plausible background instead of a second copy of the near object at the wrong distance.
+        /// A background-only copy of the face: pixels on the near side of a depth jump are removed and filled from
+        /// the surrounding far pixels (or sky), so what shows through a gap in the relief is plausible background
+        /// instead of a second copy of the near object at the wrong distance.
         /// </summary>
         private static Texture2D BuildBackdrop(Color32[] col, bool[] sky, int res, float[] depth, int n, float range)
         {
-            int b = BackdropRes;
+            int b = res;
             // Foreground nodes: clearly nearer than the farthest thing within two nodes of them.
             var fg = new bool[n * n];
             for (int y = 0; y < n; y++)
@@ -254,7 +300,8 @@ namespace LivePortals
             }
             // Dilate known pixels into the unknown ones, a ring per pass. Sky wins where it touches.
             var next = new byte[b * b];
-            for (int pass = 0; pass < 48; pass++)
+            int passes = Mathf.Clamp(b / 5, 48, 200);
+            for (int pass = 0; pass < passes; pass++)
             {
                 bool any = false;
                 System.Array.Copy(state, next, state.Length);

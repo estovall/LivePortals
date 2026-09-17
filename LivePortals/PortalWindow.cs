@@ -5,14 +5,27 @@ namespace LivePortals
 {
     /// <summary>
     /// The window on one portal. A pane over the opening shows a texture rendered every frame by a small camera
-    /// that looks at the partner portal's capture: six depth-displaced meshes around the eye, textured with the
-    /// captured faces (transparent where they saw sky), with the current sky drawn behind them. The camera's
-    /// frustum is fitted to the pane as seen from your eye (off-axis projection) and its orientation is your view
-    /// direction mapped through the portal into the partner's frame, so the picture has real parallax from either
-    /// side. The meshes are switched on only for the instant that camera renders, so no other camera sees them.
+    /// that looks at the partner portal's captures: for each capture point, six depth-displaced meshes around that
+    /// point, textured with the captured faces (transparent where they saw sky), a background-only backdrop behind
+    /// them, and the current sky drawn behind everything. The camera's frustum is fitted to the pane as seen from
+    /// your eye (off-axis projection), its near plane lies on the pane, and its orientation is your view direction
+    /// mapped through the portal into the partner's frame, so the picture has real parallax from either side. The
+    /// meshes are switched on only for the instant that camera renders, so no other camera sees them.
     /// </summary>
     public class PortalWindow : MonoBehaviour
     {
+        private class Relief
+        {
+            public GameObject Anchor;
+            public Vector3 Offset; // capture point offset in the partner's frame
+            public readonly MeshFilter[] Filters = new MeshFilter[6];
+            public readonly Renderer[] Faces = new Renderer[6];
+            public readonly Renderer[] Backs = new Renderer[6];
+            public readonly Material[] FaceMats = new Material[6];
+            public readonly Material[] BackMats = new Material[6];
+            public readonly Mesh[] Meshes = new Mesh[6];
+        }
+
         private static readonly List<PortalWindow> All = new List<PortalWindow>();
         private static readonly Quaternion Flip = Quaternion.Euler(0f, 180f, 0f);
         private static Mesh _quad, _disc;
@@ -22,7 +35,7 @@ namespace LivePortals
         private TeleportWorld _tw;
         private ZNetView _nview;
         private ZDOID _targetId = ZDOID.None;
-        private PortalCapture _cap;
+        private CaptureSet _set;
         private long _capTime = -2;
         private float _capCheckTimer;
         private float _tintTimer;
@@ -31,13 +44,7 @@ namespace LivePortals
         private GameObject _pane;
         private Renderer _paneRenderer;
         private Material _paneMat;
-        private GameObject _anchor;
-        private readonly Renderer[] _faceRenderers = new Renderer[6];
-        private readonly Renderer[] _backRenderers = new Renderer[6];
-        private readonly MeshFilter[] _faceFilters = new MeshFilter[6];
-        private readonly Material[] _faceMats = new Material[6];
-        private readonly Material[] _backMats = new Material[6];
-        private readonly Mesh[] _faceMeshes = new Mesh[6];
+        private readonly List<Relief> _reliefs = new List<Relief>();
         private Camera _cam;
         private RenderTexture _rt;
         private Light _light;
@@ -120,12 +127,13 @@ namespace LivePortals
                     _capTime = stored;
                     if (stored >= 0)
                     {
-                        _cap = Storage.Load(target);
-                        if (_cap != null) { EnsureBuilt(gc); ApplyCapture(); Plugin.Dbg("window at " + Storage.Key(_nview.GetZDO().m_uid) + " shows capture " + Storage.Key(target)); }
+                        _set = Storage.Load(target);
+                        if (_set != null && _set.Captures.Count > 0) { EnsureBuilt(gc); BuildReliefs(); Plugin.Dbg("window at " + Storage.Key(_nview.GetZDO().m_uid) + " shows capture " + Storage.Key(target) + " (" + _set.Captures.Count + " points)"); }
+                        else { _set?.Destroy(); _set = null; }
                     }
                 }
             }
-            if (_cap == null) { Hide(); return; }
+            if (_set == null) { Hide(); return; }
             EnsureBuilt(gc);
 
             // ---- Pane geometry: the ring centre sits above the portal's base along its own up axis ----
@@ -139,7 +147,7 @@ namespace LivePortals
             {
                 _loggedGeometry = true;
                 var mb = _tw.m_model != null ? _tw.m_model.bounds : new Bounds(transform.position, Vector3.zero);
-                Plugin.Log.LogInfo($"LivePortals: portal {name} pos {transform.position} fwd {n} up {up} swirl {(_tw.m_target_found != null ? _tw.m_target_found.transform.position.ToString() : "none")} model bounds centre {mb.center} size {mb.size}; pane centre {c}");
+                Plugin.Log.LogInfo($"LivePortals: portal {name} pos {transform.position} fwd {n} up {up} model bounds centre {mb.center} size {mb.size}; pane centre {c}");
             }
 
             // ---- Off-axis frustum from the eye through the pane (Kooima's generalized perspective) ----
@@ -161,28 +169,34 @@ namespace LivePortals
             Vector3 va = pa - pe, vb = pb - pe, vc = pc - pe;
             float d = Vector3.Dot(va, vn);
             if (d < 0.03f) { Hide(); return; } // eye in the plane of the pane
-            // Near plane on the pane itself: the relief is a full sphere around the far ring, and anything on the
+            // Near plane on the pane itself: the reliefs are full spheres around the far ring, and anything on the
             // far portal's near side maps to the space between the eye and the pane, where a real hole shows nothing.
             float near = Mathf.Max(0.02f, d - 0.01f), far = _cam.farClipPlane;
             float l = Vector3.Dot(vr, va) * near / d, r = Vector3.Dot(vr, vb) * near / d;
             float b = Vector3.Dot(vu, va) * near / d, t = Vector3.Dot(vu, vc) * near / d;
 
             // ---- Map through the portal: A's frame -> turned round -> B's frame ----
-            // A point p near this portal maps to relief-space as anchor + map * (p - c), where the relief's origin
-            // is the far ring's centre (the capture point). Keep the window camera on the real camera so the sky
-            // and clouds around it are right, and put the relief where that makes the far ring coincide with c.
-            // Glass test: this portal's own capture with no mapping, so the ring should read as a pane of glass.
+            // A point p near this portal maps to relief-space as anchor + map * (p - c), where each relief's origin
+            // is its capture point. Keep the window camera on the real camera so the sky and clouds around it are
+            // right, and put the reliefs where that makes the far ring coincide with c.
             Quaternion map = glass ? Quaternion.identity : rB * Flip * Quaternion.Inverse(rA);
             if (glass) rB = rA;
-            _anchor.transform.SetPositionAndRotation(pe - map * (pe - c), rB);
-            _anchor.transform.localScale = Vector3.one * Plugin.DepthScale.Value; // scales the relief about the far ring centre
+            Vector3 anchor0 = pe - map * (pe - c);
+            float ds = Plugin.DepthScale.Value;
+            for (int k = 0; k < _reliefs.Count; k++)
+            {
+                var rl = _reliefs[k];
+                // Secondary points sit a touch farther out so the primary wins where both saw the same surface.
+                float s = ds * (1f + 0.004f * k);
+                rl.Anchor.transform.SetPositionAndRotation(anchor0 + rB * (rl.Offset * ds), rB);
+                rl.Anchor.transform.localScale = Vector3.one * s;
+            }
             _cam.transform.SetPositionAndRotation(pe, map * Quaternion.LookRotation(vn, vu));
             _cam.projectionMatrix = Matrix4x4.Frustum(l, r, b, t, near, far);
-            // The window camera sits on the (possibly mirrored) eye; the sky is drawn around it either way.
             if (glass && Time.time - _lastGlassLog > 1f)
             {
                 _lastGlassLog = Time.time;
-                Plugin.Log.LogInfo($"LivePortals glass: eye {pe} pane {c} n {n} front {realFront} d {d:0.00} l {l:0.000} r {r:0.000} b {b:0.000} t {t:0.000} camFwd {_cam.transform.forward} camRight {_cam.transform.right} anchor {_anchor.transform.position} mainFwd {gc.m_camera.transform.forward}");
+                Plugin.Log.LogInfo($"LivePortals glass: eye {pe} pane {c} n {n} front {realFront} d {d:0.00} l {l:0.000} r {r:0.000} b {b:0.000} t {t:0.000} camFwd {_cam.transform.forward} camRight {_cam.transform.right} mainFwd {gc.m_camera.transform.forward}");
             }
 
             // The picture's u runs from pa, the viewer's left; the mesh has u=0 at -x, which is the viewer's left
@@ -191,18 +205,20 @@ namespace LivePortals
             _pane.transform.localScale = new Vector3(front ? -w : w, h, 1f);
             _paneMat.color = new Color(1f, 1f, 1f, alpha);
 
-            // ---- Lighting: tint the capture to now, and spill light onto the viewer's side ----
+            // ---- Lighting: tint the captures to now, and spill light onto the viewer's side ----
             _tintTimer -= Time.deltaTime;
             if (_tintTimer <= 0f)
             {
                 _tintTimer = 0.25f;
-                Color tint = Lighting.Tint(_cap, Plugin.ToneMatch.Value);
-                for (int i = 0; i < 6; i++)
-                {
-                    if (_faceMats[i] != null && _faceMats[i].HasProperty("_Color")) _faceMats[i].color = tint;
-                    if (_backMats[i] != null && _backMats[i].HasProperty("_Color")) _backMats[i].color = tint;
-                }
-                UpdateLight(c, realFront ? n : -n, tint, alpha);
+                var primary = _set.Primary;
+                Color tint = Lighting.Tint(primary, Plugin.ToneMatch.Value);
+                foreach (var rl in _reliefs)
+                    for (int i = 0; i < 6; i++)
+                    {
+                        if (rl.FaceMats[i] != null && rl.FaceMats[i].HasProperty("_Color")) rl.FaceMats[i].color = tint;
+                        if (rl.BackMats[i] != null && rl.BackMats[i].HasProperty("_Color")) rl.BackMats[i].color = tint;
+                    }
+                UpdateLight(primary, c, realFront ? n : -n, tint, alpha);
             }
 
             _visible = true;
@@ -210,33 +226,35 @@ namespace LivePortals
             if (!_hiddenForCapture && (_frame++ % Mathf.Max(1, Plugin.RenderEveryNFrames.Value)) == 0)
             {
                 // The capture meshes exist only while this camera renders: no other camera ever sees them.
-                for (int i = 0; i < 6; i++)
-                {
-                    if (_faceRenderers[i] != null) _faceRenderers[i].enabled = true;
-                    if (_backRenderers[i] != null) _backRenderers[i].enabled = true;
-                }
+                SetReliefsEnabled(true);
                 _cam.Render();
-                for (int i = 0; i < 6; i++)
-                {
-                    if (_faceRenderers[i] != null) _faceRenderers[i].enabled = false;
-                    if (_backRenderers[i] != null) _backRenderers[i].enabled = false;
-                }
+                SetReliefsEnabled(false);
             }
         }
 
-        private void UpdateLight(Vector3 c, Vector3 outward, Color tint, float alpha)
+        private void SetReliefsEnabled(bool on)
         {
-            if (_light == null) return;
+            foreach (var rl in _reliefs)
+                for (int i = 0; i < 6; i++)
+                {
+                    if (rl.Faces[i] != null) rl.Faces[i].enabled = on;
+                    if (rl.Backs[i] != null) rl.Backs[i].enabled = on;
+                }
+        }
+
+        private void UpdateLight(PortalCapture cap, Vector3 c, Vector3 outward, Color tint, float alpha)
+        {
+            if (_light == null || cap == null) return;
             float strength = Plugin.PortalLight.Value;
             if (strength <= 0f) { _light.enabled = false; return; }
             Lighting.Sample(out var sun, out var amb, out _, out _);
             float here = Mathf.Clamp01(Lighting.Level(sun, amb));
-            float there = Mathf.Clamp01(_cap.AverageLuminance * Lighting.Luminance(tint) * 1.6f);
+            float there = Mathf.Clamp01(cap.AverageLuminance * Lighting.Luminance(tint) * 1.6f);
             float intensity = strength * 3f * Mathf.Clamp01(there - here * 0.8f) * alpha;
             _light.transform.position = c + outward * 0.4f;
             _light.transform.rotation = Quaternion.LookRotation(outward, Vector3.up);
             _light.range = Plugin.PortalLightRange.Value;
-            Color col = _cap.AverageColor * tint;
+            Color col = cap.AverageColor * tint;
             float lum = Mathf.Max(0.05f, Lighting.Luminance(col));
             col = Color.Lerp(Color.white, col / lum, 0.6f);
             col.a = 1f;
@@ -268,37 +286,6 @@ namespace LivePortals
             _paneRenderer.receiveShadows = false;
             _paneRenderer.enabled = false;
 
-            // Capture meshes around an anchor that sits on the eye, oriented like the partner portal.
-            _anchor = new GameObject("LivePortals_Capture");
-            for (int i = 0; i < 6; i++)
-            {
-                var f = new GameObject("Face" + i);
-                f.layer = Plugin.FaceLayer;
-                f.transform.SetParent(_anchor.transform, false);
-                f.transform.localRotation = Capture.FaceRotations[i];
-                _faceFilters[i] = f.AddComponent<MeshFilter>();
-                var mr = f.AddComponent<MeshRenderer>();
-                _faceMats[i] = MakeCutoutMaterial();
-                mr.sharedMaterial = _faceMats[i];
-                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-                mr.receiveShadows = false;
-                mr.enabled = false;
-                _faceRenderers[i] = mr;
-
-                // Flat backdrop at the depth range behind the relief: the background-only picture fills the gaps.
-                var bk = new GameObject("Back" + i);
-                bk.layer = Plugin.FaceLayer;
-                bk.transform.SetParent(f.transform, false);
-                bk.AddComponent<MeshFilter>().sharedMesh = FlatFace(Plugin.DepthRange.Value * 1.02f);
-                var br = bk.AddComponent<MeshRenderer>();
-                _backMats[i] = MakeCutoutMaterial();
-                br.sharedMaterial = _backMats[i];
-                br.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-                br.receiveShadows = false;
-                br.enabled = false;
-                _backRenderers[i] = br;
-            }
-
             // Window camera: draws the current sky like the game's sky camera, then the capture meshes.
             var camGo = new GameObject("LivePortals_WindowCamera");
             _cam = camGo.AddComponent<Camera>();
@@ -307,8 +294,8 @@ namespace LivePortals
             int skyOnly = sky != null ? (sky.cullingMask & ~gc.m_camera.cullingMask) : 0;
             if (skyOnly == 0)
             {
-                int l = LayerMask.NameToLayer("skybox");
-                if (l >= 0) skyOnly = 1 << l;
+                int lyr = LayerMask.NameToLayer("skybox");
+                if (lyr >= 0) skyOnly = 1 << lyr;
             }
             if (Plugin.LiveSky.Value && sky != null && skyOnly != 0)
             {
@@ -348,18 +335,65 @@ namespace LivePortals
             _light.enabled = false;
         }
 
-        private void ApplyCapture()
+        /// <summary>One relief per capture point: six displaced face meshes plus six flat backdrops behind them.</summary>
+        private void BuildReliefs()
         {
-            if (_cap == null) return;
-            for (int i = 0; i < 6; i++)
+            DestroyReliefs();
+            if (_set == null) return;
+            for (int k = 0; k < _set.Captures.Count; k++)
             {
-                if (_faceMats[i] != null) _faceMats[i].mainTexture = _cap.Faces[i];
-                if (_backMats[i] != null) _backMats[i].mainTexture = _cap.Backdrops[i] != null ? _cap.Backdrops[i] : _cap.Faces[i];
-                if (_faceMeshes[i] != null) Destroy(_faceMeshes[i]);
-                _faceMeshes[i] = BuildFaceMesh(_cap.Depth[i], _cap.DepthSize, _cap.DepthRange);
-                if (_faceFilters[i] != null) _faceFilters[i].sharedMesh = _faceMeshes[i];
+                var cap = _set.Captures[k];
+                var rl = new Relief { Offset = _set.Offsets[k] };
+                rl.Anchor = new GameObject("LivePortals_Relief" + k);
+                for (int i = 0; i < 6; i++)
+                {
+                    var f = new GameObject("Face" + i);
+                    f.layer = Plugin.FaceLayer;
+                    f.transform.SetParent(rl.Anchor.transform, false);
+                    f.transform.localRotation = Capture.FaceRotations[i];
+                    rl.Filters[i] = f.AddComponent<MeshFilter>();
+                    rl.Meshes[i] = BuildFaceMesh(cap.Depth[i], cap.DepthSize, cap.DepthRange);
+                    rl.Filters[i].sharedMesh = rl.Meshes[i];
+                    var mr = f.AddComponent<MeshRenderer>();
+                    rl.FaceMats[i] = MakeCutoutMaterial();
+                    rl.FaceMats[i].mainTexture = cap.Faces[i];
+                    mr.sharedMaterial = rl.FaceMats[i];
+                    mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                    mr.receiveShadows = false;
+                    mr.enabled = false;
+                    rl.Faces[i] = mr;
+
+                    var bk = new GameObject("Back" + i);
+                    bk.layer = Plugin.FaceLayer;
+                    bk.transform.SetParent(f.transform, false);
+                    bk.AddComponent<MeshFilter>().sharedMesh = FlatFace(cap.DepthRange * 1.02f);
+                    var br = bk.AddComponent<MeshRenderer>();
+                    rl.BackMats[i] = MakeCutoutMaterial();
+                    rl.BackMats[i].mainTexture = cap.Backdrops[i] != null ? cap.Backdrops[i] : cap.Faces[i];
+                    br.sharedMaterial = rl.BackMats[i];
+                    br.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                    br.receiveShadows = false;
+                    br.enabled = false;
+                    rl.Backs[i] = br;
+                }
+                _reliefs.Add(rl);
             }
             _tintTimer = 0f;
+        }
+
+        private void DestroyReliefs()
+        {
+            foreach (var rl in _reliefs)
+            {
+                for (int i = 0; i < 6; i++)
+                {
+                    if (rl.FaceMats[i] != null) Destroy(rl.FaceMats[i]);
+                    if (rl.BackMats[i] != null) Destroy(rl.BackMats[i]);
+                    if (rl.Meshes[i] != null) Destroy(rl.Meshes[i]);
+                }
+                if (rl.Anchor != null) Destroy(rl.Anchor);
+            }
+            _reliefs.Clear();
         }
 
         /// <summary>
@@ -370,11 +404,7 @@ namespace LivePortals
         private static Mesh BuildFaceMesh(float[] depth, int n, float range)
         {
             var m = new Mesh { name = "LivePortals_Face" };
-            if (depth == null || n < 2)
-            {
-                // No depth: a flat face at the range.
-                return FlatFace(range);
-            }
+            if (depth == null || n < 2) return FlatFace(range);
             var verts = new Vector3[n * n];
             var uvs = new Vector2[n * n];
             var cols = new Color32[n * n];
@@ -392,7 +422,7 @@ namespace LivePortals
             }
             // Only connect vertices that belong to the same surface: a triangle spanning a depth jump (a rock
             // edge against the ground behind it, anything against the sky) would be a streak toward the horizon.
-            // Holes left at silhouettes show the flat backdrop behind the relief instead.
+            // Holes left at silhouettes show the backdrop, or another capture point's surface, instead.
             var tris = new List<int>((n - 1) * (n - 1) * 6);
             for (int y = 0; y < n - 1; y++)
                 for (int x = 0; x < n - 1; x++)
@@ -428,14 +458,8 @@ namespace LivePortals
 
         private void ReleaseCapture()
         {
-            if (_cap != null) { _cap.Destroy(); _cap = null; }
-            for (int i = 0; i < 6; i++)
-            {
-                if (_faceMats[i] != null) _faceMats[i].mainTexture = null;
-                if (_backMats[i] != null) _backMats[i].mainTexture = null;
-                if (_faceMeshes[i] != null) { Destroy(_faceMeshes[i]); _faceMeshes[i] = null; }
-                if (_faceFilters[i] != null) _faceFilters[i].sharedMesh = null;
-            }
+            DestroyReliefs();
+            if (_set != null) { _set.Destroy(); _set = null; }
         }
 
         private void Hide()
@@ -455,11 +479,9 @@ namespace LivePortals
         {
             ReleaseCapture();
             if (_pane != null) Destroy(_pane);
-            if (_anchor != null) Destroy(_anchor);
             if (_cam != null) Destroy(_cam.gameObject);
             if (_light != null) Destroy(_light.gameObject);
             if (_paneMat != null) Destroy(_paneMat);
-            for (int i = 0; i < 6; i++) { if (_faceMats[i] != null) Destroy(_faceMats[i]); if (_backMats[i] != null) Destroy(_backMats[i]); }
             if (_rt != null) { _rt.Release(); Destroy(_rt); }
             _built = false;
         }
