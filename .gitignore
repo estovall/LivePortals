@@ -1,0 +1,9 @@
+bin/
+obj/
+*.user
+.vs/
+dist/
+package/LivePortals.dll
+
+# Hexium service-account token (never commit)
+hexium-token.txt

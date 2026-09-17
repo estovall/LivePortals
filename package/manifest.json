@@ -1,0 +1,9 @@
+{
+    "name": "LivePortals",
+    "description": "See through your portals. Each trip captures the view from a portal; its partner shows it as a window with real parallax, the live sky and time-of-day lighting, and light spilling out when the far side is brighter.",
+    "version_number": "0.1.0",
+    "website_url": "https://github.com/estovall/LivePortals",
+    "dependencies": [
+        "denikson-BepInExPack_Valheim-5.4.2350"
+    ]
+}
