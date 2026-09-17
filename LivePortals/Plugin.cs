@@ -20,7 +20,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "LivePortals";
-        public const string VERSION = "0.3.4";
+        public const string VERSION = "0.3.5";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -42,6 +42,8 @@ namespace LivePortals
         internal static ConfigEntry<bool> PaneRound;
         internal static ConfigEntry<float> DepthScale;
         internal static ConfigEntry<bool> TuneKeys;
+        internal static ConfigEntry<bool> GlassTest;
+        internal static ConfigEntry<bool> ArrivalViewBothSides;
 
         /// <summary>
         /// World position of the portal ring's centre, where the pane sits and captures are taken from. The
@@ -121,7 +123,11 @@ namespace LivePortals
                 new ConfigDescription("Scale of the captured world behind the window. 1 = true size; below 1 brings it closer and larger, above 1 pushes it away.",
                     new AcceptableValueRange<float>(0.2f, 5f)));
             TuneKeys = Config.Bind("2. Window", "TuneKeys", true,
-                "Numpad tuning while in game: 8/2 ring height, 4/6 forward offset, 7/9 pane width, 1/3 pane height, +/- depth scale, 5 prints and saves. Values are saved to this file.");
+                "Numpad tuning while in game: 8/2 ring height, 4/6 forward offset, 7/9 pane width, 1/3 pane height, +/- depth scale, 5 prints and saves, 0 captures the nearest portal now. Values are saved to this file.");
+            GlassTest = Config.Bind("2. Window", "GlassTest", false,
+                "Diagnostic: each window shows its OWN portal's capture with no portal mapping, so the ring should look like a pane of glass onto the real surroundings. Capture with numpad 0 first.");
+            ArrivalViewBothSides = Config.Bind("2. Window", "ArrivalViewBothSides", true,
+                "The game always drops you at the partner's front, so show the partner's front view from both faces of a portal (mirrored from behind). Off = a physically consistent hole: back shows the partner's back.");
             PaneForwardOffset = Config.Bind("2. Window", "PaneForwardOffset", 0f,
                 new ConfigDescription("Pane offset along the portal's forward axis, metres. Nudge if it fights the frame or the swirl.",
                     new AcceptableValueRange<float>(-1f, 1f)));
@@ -218,6 +224,17 @@ namespace LivePortals
             if (ZInput.GetKeyDown(KeyCode.Keypad1, false)) { PaneHeight.Value = Round(PaneHeight.Value - 0.05f); changed = true; }
             if (ZInput.GetKeyDown(KeyCode.KeypadPlus, false)) { DepthScale.Value = Round(DepthScale.Value * 1.05f); changed = true; }
             if (ZInput.GetKeyDown(KeyCode.KeypadMinus, false)) { DepthScale.Value = Round(DepthScale.Value / 1.05f); changed = true; }
+            if (ZInput.GetKeyDown(KeyCode.Keypad0, false))
+            {
+                TeleportWorld best = null; float bestD = 8f;
+                foreach (var tw in UnityEngine.Object.FindObjectsByType<TeleportWorld>(FindObjectsSortMode.None))
+                {
+                    float d = Vector3.Distance(tw.transform.position, player.transform.position);
+                    if (d < bestD) { bestD = d; best = tw; }
+                }
+                if (best != null) { CaptureAt(best, "manual"); player.Message(MessageHud.MessageType.Center, "LivePortals: captured " + best.name); }
+                else player.Message(MessageHud.MessageType.Center, "LivePortals: no portal within 8 m");
+            }
             bool print = ZInput.GetKeyDown(KeyCode.Keypad5, false);
             if (!changed && !print) return;
             Config.Save();

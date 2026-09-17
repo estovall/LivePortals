@@ -96,7 +96,8 @@ namespace LivePortals
             alpha = 1f - (1f - alpha) * (1f - alpha); // ease in: half visible a third of the way in
             if (alpha <= 0.001f) { Hide(); return; }
 
-            ZDOID target = _nview.GetZDO().GetConnectionZDOID(ZDOExtraData.ConnectionType.Portal);
+            bool glass = Plugin.GlassTest.Value;
+            ZDOID target = glass ? _nview.GetZDO().m_uid : _nview.GetZDO().GetConnectionZDOID(ZDOExtraData.ConnectionType.Portal);
             if (target == ZDOID.None) { Hide(); return; }
             ZDO tz = ZDOMan.instance.GetZDO(target);
             if (tz == null)
@@ -142,7 +143,15 @@ namespace LivePortals
 
             // ---- Off-axis frustum from the eye through the pane (Kooima's generalized perspective) ----
             Vector3 pe = gc.m_camera.transform.position;
-            bool front = Vector3.Dot(pe - c, n) >= 0f;
+            bool realFront = Vector3.Dot(pe - c, n) >= 0f;
+            bool front = realFront;
+            if (!realFront && Plugin.ArrivalViewBothSides.Value && !glass)
+            {
+                // The game always drops you at the partner's front, so from behind show the same front view,
+                // computed for the eye mirrored through the pane (which keeps the parallax honest).
+                pe = pe - 2f * Vector3.Dot(pe - c, n) * n;
+                front = true;
+            }
             Vector3 hr = right * (w * 0.5f), hu = up * (h * 0.5f);
             Vector3 pa, pb, pc; // lower-left, lower-right, upper-left as the viewer sees them
             if (front) { pa = c + hr - hu; pb = c - hr - hu; pc = c + hr + hu; }
@@ -159,11 +168,14 @@ namespace LivePortals
             // A point p near this portal maps to relief-space as anchor + map * (p - c), where the relief's origin
             // is the far ring's centre (the capture point). Keep the window camera on the real camera so the sky
             // and clouds around it are right, and put the relief where that makes the far ring coincide with c.
-            Quaternion map = rB * Flip * Quaternion.Inverse(rA);
+            // Glass test: this portal's own capture with no mapping, so the ring should read as a pane of glass.
+            Quaternion map = glass ? Quaternion.identity : rB * Flip * Quaternion.Inverse(rA);
+            if (glass) rB = rA;
             _anchor.transform.SetPositionAndRotation(pe - map * (pe - c), rB);
             _anchor.transform.localScale = Vector3.one * Plugin.DepthScale.Value; // scales the relief about the far ring centre
             _cam.transform.SetPositionAndRotation(pe, map * Quaternion.LookRotation(vn, vu));
             _cam.projectionMatrix = Matrix4x4.Frustum(l, r, b, t, near, far);
+            // The window camera sits on the (possibly mirrored) eye; the sky is drawn around it either way.
 
             // The pane's u runs from pa: the mesh has u=0 at -x, which is the viewer's left only from behind.
             _paneMat.mainTextureScale = new Vector2(front ? -1f : 1f, 1f);
@@ -177,7 +189,7 @@ namespace LivePortals
                 _tintTimer = 0.25f;
                 Color tint = Lighting.Tint(_cap, Plugin.ToneMatch.Value);
                 for (int i = 0; i < 6; i++) if (_faceMats[i] != null && _faceMats[i].HasProperty("_Color")) _faceMats[i].color = tint;
-                UpdateLight(c, front ? n : -n, tint, alpha);
+                UpdateLight(c, realFront ? n : -n, tint, alpha);
             }
 
             _visible = true;
