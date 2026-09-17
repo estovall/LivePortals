@@ -20,7 +20,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "LivePortals";
-        public const string VERSION = "0.3.0";
+        public const string VERSION = "0.3.1";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -37,13 +37,20 @@ namespace LivePortals
         internal static ConfigEntry<float> PaneWidth;
         internal static ConfigEntry<float> PaneHeight;
         internal static ConfigEntry<float> RingCenterHeight;
+        internal static ConfigEntry<float> RingCenterOffset;
         internal static ConfigEntry<float> PaneForwardOffset;
         internal static ConfigEntry<bool> PaneRound;
 
-        /// <summary>World position of the portal ring's centre, where the pane sits and captures are taken from.</summary>
+        /// <summary>
+        /// World position of the portal ring's centre, where the pane sits and captures are taken from. The
+        /// vanilla swirl effect is placed exactly there, so use it when present; else a height above the base.
+        /// </summary>
         internal static Vector3 RingCenter(TeleportWorld tw)
         {
-            return tw.transform.position + tw.transform.rotation * new Vector3(0f, RingCenterHeight.Value, PaneForwardOffset.Value);
+            Vector3 basePos = tw.m_target_found != null
+                ? tw.m_target_found.transform.position + tw.transform.rotation * new Vector3(0f, RingCenterOffset.Value, PaneForwardOffset.Value)
+                : tw.transform.position + tw.transform.rotation * new Vector3(0f, RingCenterHeight.Value + RingCenterOffset.Value, PaneForwardOffset.Value);
+            return basePos;
         }
         internal static ConfigEntry<bool> CaptureOnDeparture;
         internal static ConfigEntry<bool> CaptureOnArrival;
@@ -93,8 +100,11 @@ namespace LivePortals
             PaneHeight = Config.Bind("2. Window", "PaneHeight", 2.4f,
                 new ConfigDescription("Height of the window pane in metres.", new AcceptableValueRange<float>(0.5f, 5f)));
             RingCenterHeight = Config.Bind("2. Window", "RingCenterHeight", 1.7f,
-                new ConfigDescription("Height of the ring's centre above the portal's base, metres. The pane and the captures are centred there.",
+                new ConfigDescription("Fallback height of the ring's centre above the portal's base, metres, for portals without the vanilla swirl effect.",
                     new AcceptableValueRange<float>(0f, 4f)));
+            RingCenterOffset = Config.Bind("2. Window", "RingCenterOffset", 0f,
+                new ConfigDescription("Vertical nudge of the pane and capture point from the swirl's position, metres.",
+                    new AcceptableValueRange<float>(-1f, 1f)));
             PaneRound = Config.Bind("2. Window", "PaneRound", true, "Round pane (the ring's shape) instead of a square.");
             PaneForwardOffset = Config.Bind("2. Window", "PaneForwardOffset", 0f,
                 new ConfigDescription("Pane offset along the portal's forward axis, metres. Nudge if it fights the frame or the swirl.",

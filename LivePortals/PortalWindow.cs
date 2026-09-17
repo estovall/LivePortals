@@ -136,7 +136,7 @@ namespace LivePortals
             {
                 _loggedGeometry = true;
                 var mb = _tw.m_model != null ? _tw.m_model.bounds : new Bounds(transform.position, Vector3.zero);
-                Plugin.Log.LogInfo($"LivePortals: portal {name} pos {transform.position} fwd {n} up {up} scale {transform.lossyScale} proximity {(_tw.m_proximityRoot != null ? _tw.m_proximityRoot.position.ToString() : "none")} model bounds centre {mb.center} size {mb.size}; pane centre {c}");
+                Plugin.Log.LogInfo($"LivePortals: portal {name} pos {transform.position} fwd {n} up {up} swirl {(_tw.m_target_found != null ? _tw.m_target_found.transform.position.ToString() : "none")} model bounds centre {mb.center} size {mb.size}; pane centre {c}");
             }
 
             // ---- Off-axis frustum from the eye through the pane (Kooima's generalized perspective) ----
@@ -155,8 +155,11 @@ namespace LivePortals
             float b = Vector3.Dot(vu, va) * near / d, t = Vector3.Dot(vu, vc) * near / d;
 
             // ---- Map through the portal: A's frame -> turned round -> B's frame ----
+            // A point p near this portal maps to relief-space as anchor + map * (p - c), where the relief's origin
+            // is the far ring's centre (the capture point). Keep the window camera on the real camera so the sky
+            // and clouds around it are right, and put the relief where that makes the far ring coincide with c.
             Quaternion map = rB * Flip * Quaternion.Inverse(rA);
-            _anchor.transform.SetPositionAndRotation(pe, rB);
+            _anchor.transform.SetPositionAndRotation(pe - map * (pe - c), rB);
             _cam.transform.SetPositionAndRotation(pe, map * Quaternion.LookRotation(vn, vu));
             _cam.projectionMatrix = Matrix4x4.Frustum(l, r, b, t, near, far);
 
