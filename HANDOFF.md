@@ -293,6 +293,16 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     "forward path" (if it still says deferred, the forward pass failed the test and nothing is gained there),
     (b) the async readback check line, (c) captures looking the same as before (flip detection), (d) skirts now
     blended rather than cut out.
+29. 0.9.4 tested by Max: "much better now, they have a tiny delay when looking through them". Log: the forward path
+    FAILS the material self-test (Custom/Creature emissive renders black in forward: `000000 000000 000000`), so the
+    window camera stays deferred; even so a redraw is 1.7 to 2.4 ms (one pass, no shadows), all windows together 5 to
+    16 ms per second. Async readback: usable, same way up. Captures: 11 frames, 120 to 250 ms in total (was 1.3 s in
+    one frame). 0.9.5 for the delay: (a) the pose was computed in `Update` from the game camera's position, but
+    `GameCamera` moves in LateUpdate, so the window was one frame behind; the eye-dependent half of `Update` is now
+    `PortalWindow.Refresh(Camera)`, called with the scheduler from `Camera.onPreCull` of the game camera
+    (`Plugin.OnCameraPreCull`), and `RenderNow` runs there too (nested camera render, as the stock water/mirror
+    scripts do); (b) the eye-move threshold was 5 mm per metre = five pixels, now 0.7 mm per metre for rank 0;
+    (c) rank 0 redraws every frame at any distance, the rest at 30 Hz ordered by staleness. **Untested.**
 25. Not yet done: publish to Hexium (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

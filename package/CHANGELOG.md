@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.5
+
+- The window no longer trails the view. It was posed in Update, before the game moves its camera (that happens in LateUpdate), so it always showed the previous frame's eye. It is now posed and redrawn just before the game camera renders, from that frame's final eye position.
+- The far side no longer moves in steps: a redraw is triggered by about a pixel's worth of eye movement (it was five), and the nearest window redraws every frame at any distance. Other windows redraw 30 times a second and take turns by how long each has waited.
+
 ## 0.9.4
 
 - Window redraws cost about a third of what they did. The window camera now renders on the forward path (the self-test tries it first), in one pass instead of two, with no shadow maps and no occlusion culling. The skirts and far shell draw unlit without depth writes, which gives the same picture the second pass did.

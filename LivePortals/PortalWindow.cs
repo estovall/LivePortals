@@ -209,8 +209,36 @@ namespace LivePortals
                 Plugin.Log.LogInfo($"LivePortals: portal {name} pos {transform.position} fwd {n} up {up} model bounds centre {mb.center} size {mb.size}; pane centre {c}");
             }
 
+            // The rest depends on where the eye is, and the game moves its camera in LateUpdate: done in Refresh,
+            // which the scheduler calls just before the game camera renders, so the window never trails the view.
+            _gC = c; _gN = n; _gUp = up; _gRight = right; _gW = w; _gH = h; _gRA = rA; _gRB = rB; _gGlass = glass; _gTarget = target; _gAlpha = alpha;
+            _poseReady = true;
+        }
+
+        private bool _poseReady;
+        private Vector3 _gC, _gN, _gUp, _gRight;
+        private float _gW, _gH, _gAlpha;
+        private Quaternion _gRA, _gRB;
+        private bool _gGlass;
+        private ZDOID _gTarget;
+        internal float Staleness => Time.time - _lastRenderTime;
+
+        /// <summary>
+        /// The eye-dependent half of the frame, from the game camera's final position for this frame: the off-axis
+        /// frustum, where the reliefs stand, which way the pane faces, the tint, and whether a redraw is wanted.
+        /// Up to 0.9.4 this ran in Update, before the game had moved its camera: the window showed the view for
+        /// the previous frame's eye, a small but visible lag behind the frame around it.
+        /// </summary>
+        internal void Refresh(Camera main)
+        {
+            if (!_poseReady || _cam == null || _set == null || _pane == null || main == null) return;
+            Vector3 c = _gC, n = _gN, up = _gUp, right = _gRight;
+            float w = _gW, h = _gH, alpha = _gAlpha;
+            Quaternion rA = _gRA, rB = _gRB;
+            bool glass = _gGlass;
+            ZDOID target = _gTarget;
             // ---- Off-axis frustum from the eye through the pane (Kooima's generalized perspective) ----
-            Vector3 pe = gc.m_camera.transform.position;
+            Vector3 pe = main.transform.position;
             bool realFront = Vector3.Dot(pe - c, n) >= 0f;
             bool front = realFront;
             if (!realFront && Plugin.ArrivalViewBothSides.Value && !glass)
@@ -257,7 +285,7 @@ namespace LivePortals
             if (glass && Time.time - _lastGlassLog > 1f)
             {
                 _lastGlassLog = Time.time;
-                Plugin.Log.LogInfo($"LivePortals glass: eye {pe} pane {c} n {n} front {realFront} d {d:0.00} l {l:0.000} r {r:0.000} b {b:0.000} t {t:0.000} camFwd {_cam.transform.forward} camRight {_cam.transform.right} mainFwd {gc.m_camera.transform.forward}");
+                Plugin.Log.LogInfo($"LivePortals glass: eye {pe} pane {c} n {n} front {realFront} d {d:0.00} l {l:0.000} r {r:0.000} b {b:0.000} t {t:0.000} camFwd {_cam.transform.forward} camRight {_cam.transform.right} mainFwd {main.transform.forward}");
             }
 
             // The picture's u runs from pa, the viewer's left; the mesh has u=0 at -x, which is the viewer's left
@@ -283,7 +311,7 @@ namespace LivePortals
             ApplyVisibility();
             _pe = pe; _anchor0 = anchor0; _rB = rB; _target = target; _near = near; _far = far; _l = l; _r = r; _b = b; _t = t; _glass = glass; _realFront = realFront; _alphaNow = alpha;
             bool wantDump = _dumped != DumpRequest;
-            WantsRender = !_hiddenForCapture && ShouldRender(gc.m_camera, pe, alpha, wantDump);
+            WantsRender = !_hiddenForCapture && ShouldRender(main, pe, alpha, wantDump);
         }
 
         /// <summary>Redraw the window now, with the geometry of the last Update. Called by the scheduler.</summary>
@@ -432,16 +460,15 @@ namespace LivePortals
             float since = Time.time - _lastRenderTime;
             if (!Plugin.RenderWhenStill.Value)
             {
-                // Far windows need a new picture only after a bigger step: the parallax of 5 mm per metre of
-                // distance is below a pixel.
-                float thr = Mathf.Max(0.02f, _eyeDist * 0.005f);
+                // A new picture once the eye has moved by about a pixel's worth: 0.7 mm per metre of distance.
+                // (0.9.2 to 0.9.4 used 5 mm per metre, which is five pixels: the far side moved in visible steps.)
+                float thr = Mathf.Max(0.003f, _eyeDist * (Rank == 0 ? 0.0007f : 0.002f));
                 bool moved = float.IsNaN(_lastEye.x) || (pe - _lastEye).sqrMagnitude > thr * thr || Mathf.Abs(alpha - _lastAlpha) > 0.002f;
                 if (!moved && since < 0.5f) { _skips++; return false; }
             }
-            // Cadence: right at the portal the picture follows the eye every frame. Farther out, where a frame's
-            // step of the eye shifts it by less than a pixel, thirty redraws a second look the same, and the
-            // windows beyond the nearest get twenty.
-            float interval = Rank == 0 ? (_eyeDist <= 6f ? 0f : 1f / 30f) : 1f / 20f;
+            // Cadence: the nearest window follows the eye every frame (a redraw is about 2 ms); the others thirty
+            // times a second, taking turns for the rest of the frame's budget.
+            float interval = Rank == 0 ? 0f : 1f / 30f;
             if (since < interval) { _skips++; return false; }
             if (Plugin.PerfLog.Value && Time.time - _perfLogTime > 10f)
             {
@@ -671,6 +698,7 @@ namespace LivePortals
         private void Hide()
         {
             _visible = false;
+            _poseReady = false;
             WantsRender = false;
             ApplyVisibility();
         }

@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "LivePortals";
-        public const string VERSION = "0.9.4";
+        public const string VERSION = "0.9.5";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -215,6 +215,7 @@ namespace LivePortals
 
             _harmony = new Harmony(GUID);
             _harmony.PatchAll(typeof(Patches));
+            Camera.onPreCull += OnCameraPreCull;
             // Portals register themselves as they appear, so no scan of every object in the scene is needed.
             var awake = AccessTools.Method(typeof(TeleportWorld), "Awake");
             if (awake != null) { _harmony.Patch(awake, postfix: new HarmonyMethod(typeof(Patches), nameof(Patches.TeleportWorld_Awake))); _portalsTracked = true; }
@@ -224,6 +225,7 @@ namespace LivePortals
 
         private void OnDestroy()
         {
+            Camera.onPreCull -= OnCameraPreCull;
             _harmony?.UnpatchSelf();
         }
 
@@ -277,9 +279,15 @@ namespace LivePortals
 
         private float _perfAt;
 
-        private void LateUpdate()
+        /// <summary>
+        /// Runs just before the game camera culls: every script has moved what it moves by then (the game places its
+        /// camera in LateUpdate), so the windows are posed for exactly the eye this frame is drawn from, and the
+        /// redraws land in the same frame.
+        /// </summary>
+        private void OnCameraPreCull(Camera cam)
         {
-            if (!Enabled.Value) return;
+            var gc = GameCamera.instance;
+            if (gc == null || cam != gc.m_camera || !Enabled.Value) return;
             if (PerfLog.Value && Time.time - _perfAt > 10f)
             {
                 float span = _perfAt > 0f ? Time.time - _perfAt : 10f;
@@ -287,9 +295,25 @@ namespace LivePortals
                 PortalWindow.PerfRenders = 0; PortalWindow.PerfMs = 0; _perfAt = Time.time;
             }
             _wanting.Clear();
-            foreach (var w in PortalWindow.All) if (w != null && w.WantsRender) _wanting.Add(w);
+            for (int i = 0; i < PortalWindow.All.Count; i++)
+            {
+                var w = PortalWindow.All[i];
+                if (w == null) continue;
+                try { w.Refresh(cam); }
+                catch (Exception e) { Dbg("window refresh failed: " + e.Message); }
+                if (w.WantsRender) _wanting.Add(w);
+            }
             if (_wanting.Count == 0) return;
-            if (_wanting.Count > 1) _wanting.Sort((a, b) => a.EyeDist.CompareTo(b.EyeDist));
+            if (_wanting.Count > 1)
+            {
+                // The nearest first, always; the rest by how long each has waited, so they take turns.
+                int nearest = 0;
+                for (int i = 1; i < _wanting.Count; i++) if (_wanting[i].EyeDist < _wanting[nearest].EyeDist) nearest = i;
+                var first = _wanting[nearest];
+                _wanting.RemoveAt(nearest);
+                _wanting.Sort((x, y) => y.Staleness.CompareTo(x.Staleness));
+                _wanting.Insert(0, first);
+            }
             int budget = Mathf.Max(1, MaxRendersPerFrame.Value);
             for (int i = 0; i < _wanting.Count; i++)
             {
