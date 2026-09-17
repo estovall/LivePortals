@@ -36,6 +36,7 @@ namespace LivePortals
         private readonly Renderer[] _backRenderers = new Renderer[6];
         private readonly MeshFilter[] _faceFilters = new MeshFilter[6];
         private readonly Material[] _faceMats = new Material[6];
+        private readonly Material[] _backMats = new Material[6];
         private readonly Mesh[] _faceMeshes = new Mesh[6];
         private Camera _cam;
         private RenderTexture _rt;
@@ -190,7 +191,11 @@ namespace LivePortals
             {
                 _tintTimer = 0.25f;
                 Color tint = Lighting.Tint(_cap, Plugin.ToneMatch.Value);
-                for (int i = 0; i < 6; i++) if (_faceMats[i] != null && _faceMats[i].HasProperty("_Color")) _faceMats[i].color = tint;
+                for (int i = 0; i < 6; i++)
+                {
+                    if (_faceMats[i] != null && _faceMats[i].HasProperty("_Color")) _faceMats[i].color = tint;
+                    if (_backMats[i] != null && _backMats[i].HasProperty("_Color")) _backMats[i].color = tint;
+                }
                 UpdateLight(c, realFront ? n : -n, tint, alpha);
             }
 
@@ -271,20 +276,21 @@ namespace LivePortals
                 f.transform.localRotation = Capture.FaceRotations[i];
                 _faceFilters[i] = f.AddComponent<MeshFilter>();
                 var mr = f.AddComponent<MeshRenderer>();
-                _faceMats[i] = new Material(FindShader("Sprites/Default", "Unlit/Transparent", "Unlit/Texture"));
+                _faceMats[i] = MakeCutoutMaterial();
                 mr.sharedMaterial = _faceMats[i];
                 mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                 mr.receiveShadows = false;
                 mr.enabled = false;
                 _faceRenderers[i] = mr;
 
-                // Flat backdrop at the depth range behind the relief, same picture: fills the holes at silhouettes.
+                // Flat backdrop at the depth range behind the relief: the background-only picture fills the gaps.
                 var bk = new GameObject("Back" + i);
                 bk.layer = Plugin.FaceLayer;
                 bk.transform.SetParent(f.transform, false);
                 bk.AddComponent<MeshFilter>().sharedMesh = FlatFace(Plugin.DepthRange.Value * 1.02f);
                 var br = bk.AddComponent<MeshRenderer>();
-                br.sharedMaterial = _faceMats[i];
+                _backMats[i] = MakeCutoutMaterial();
+                br.sharedMaterial = _backMats[i];
                 br.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                 br.receiveShadows = false;
                 br.enabled = false;
@@ -342,6 +348,7 @@ namespace LivePortals
             for (int i = 0; i < 6; i++)
             {
                 if (_faceMats[i] != null) _faceMats[i].mainTexture = _cap.Faces[i];
+                if (_backMats[i] != null) _backMats[i].mainTexture = _cap.Backdrops[i] != null ? _cap.Backdrops[i] : _cap.Faces[i];
                 if (_faceMeshes[i] != null) Destroy(_faceMeshes[i]);
                 _faceMeshes[i] = BuildFaceMesh(_cap.Depth[i], _cap.DepthSize, _cap.DepthRange);
                 if (_faceFilters[i] != null) _faceFilters[i].sharedMesh = _faceMeshes[i];
@@ -419,6 +426,7 @@ namespace LivePortals
             for (int i = 0; i < 6; i++)
             {
                 if (_faceMats[i] != null) _faceMats[i].mainTexture = null;
+                if (_backMats[i] != null) _backMats[i].mainTexture = null;
                 if (_faceMeshes[i] != null) { Destroy(_faceMeshes[i]); _faceMeshes[i] = null; }
                 if (_faceFilters[i] != null) _faceFilters[i].sharedMesh = null;
             }
@@ -445,9 +453,33 @@ namespace LivePortals
             if (_cam != null) Destroy(_cam.gameObject);
             if (_light != null) Destroy(_light.gameObject);
             if (_paneMat != null) Destroy(_paneMat);
-            for (int i = 0; i < 6; i++) if (_faceMats[i] != null) Destroy(_faceMats[i]);
+            for (int i = 0; i < 6; i++) { if (_faceMats[i] != null) Destroy(_faceMats[i]); if (_backMats[i] != null) Destroy(_backMats[i]); }
             if (_rt != null) { _rt.Release(); Destroy(_rt); }
             _built = false;
+        }
+
+        /// <summary>
+        /// Unlit, alpha-tested, depth-writing, double-sided, tintable: the particle standard shader in cutout mode.
+        /// Depth writes let near relief patches occlude far ones and the backdrop properly.
+        /// </summary>
+        private static Material MakeCutoutMaterial()
+        {
+            var s = Shader.Find("Particles/Standard Unlit");
+            if (s == null) return new Material(FindShader("Sprites/Default", "Unlit/Transparent", "Unlit/Texture"));
+            var m = new Material(s);
+            m.SetFloat("_Mode", 1f);
+            m.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.One);
+            m.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.Zero);
+            m.SetInt("_ZWrite", 1);
+            m.SetInt("_Cull", (int)UnityEngine.Rendering.CullMode.Off);
+            m.SetFloat("_Cutoff", 0.5f);
+            m.SetFloat("_ColorMode", 0f);
+            m.EnableKeyword("_ALPHATEST_ON");
+            m.DisableKeyword("_ALPHABLEND_ON");
+            m.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+            m.DisableKeyword("_ALPHAMODULATE_ON");
+            m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.AlphaTest;
+            return m;
         }
 
         private static Shader FindShader(params string[] names)

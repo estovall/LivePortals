@@ -26,6 +26,7 @@ namespace LivePortals
 
         private static string FacePath(string dir, string key, int i) => Path.Combine(dir, key + "_" + i + ".png");
         private static string DepthPath(string dir, string key, int i) => Path.Combine(dir, key + "_d" + i + ".png");
+        private static string BackPath(string dir, string key, int i) => Path.Combine(dir, key + "_b" + i + ".png");
         private static string MetaPath(string dir, string key) => Path.Combine(dir, key + ".txt");
 
         internal static void Save(ZDOID id, PortalCapture cap)
@@ -35,6 +36,7 @@ namespace LivePortals
             {
                 File.WriteAllBytes(FacePath(dir, key, i), cap.Faces[i].EncodeToPNG());
                 if (cap.Depth[i] != null) File.WriteAllBytes(DepthPath(dir, key, i), EncodeDepth(cap.Depth[i], cap.DepthSize, cap.DepthRange));
+                if (cap.Backdrops[i] != null) File.WriteAllBytes(BackPath(dir, key, i), cap.Backdrops[i].EncodeToPNG());
             }
             string meta = string.Join("\n", new[]
             {
@@ -102,6 +104,14 @@ namespace LivePortals
                         string dp = DepthPath(dir, key, i);
                         cap.Depth[i] = File.Exists(dp) ? DecodeDepth(File.ReadAllBytes(dp), cap.DepthSize, cap.DepthRange) : null;
                     }
+                }
+                for (int i = 0; i < 6; i++)
+                {
+                    string bp = BackPath(dir, key, i);
+                    if (!File.Exists(bp)) continue;
+                    var tex = new Texture2D(2, 2, TextureFormat.RGBA32, true);
+                    if (tex.LoadImage(File.ReadAllBytes(bp), false)) { tex.wrapMode = TextureWrapMode.Clamp; tex.filterMode = FilterMode.Bilinear; cap.Backdrops[i] = tex; }
+                    else UnityEngine.Object.Destroy(tex);
                 }
                 return cap;
             }

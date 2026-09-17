@@ -10,6 +10,8 @@ namespace LivePortals
     internal class PortalCapture
     {
         public Texture2D[] Faces = new Texture2D[6];
+        /// <summary>Background-only version of each face (near objects removed and filled in), drawn at the far distance behind the relief.</summary>
+        public Texture2D[] Backdrops = new Texture2D[6];
         /// <summary>View depth per face in metres, row-major, DepthSize x DepthSize; DepthRange means "sky / far".</summary>
         public float[][] Depth = new float[6][];
         public int DepthSize;
@@ -25,6 +27,7 @@ namespace LivePortals
         public void Destroy()
         {
             for (int i = 0; i < Faces.Length; i++) if (Faces[i] != null) Object.Destroy(Faces[i]);
+            for (int i = 0; i < Backdrops.Length; i++) if (Backdrops[i] != null) Object.Destroy(Backdrops[i]);
         }
     }
 
@@ -142,6 +145,7 @@ namespace LivePortals
                     //    water, creatures). Shader-independent; sky pixels are not cast.
                     cap.Depth[i] = RaycastDepth(pos, rot * FaceRotations[i], sky, res, dres, depthRange, out int cast, out float median);
                     Plugin.Dbg($"face {i}: {cast} rays, median depth {median:0.0} m");
+                    cap.Backdrops[i] = BuildBackdrop(col, sky, res, cap.Depth[i], dres, depthRange);
                     if (i == 0 && count > 0)
                     {
                         cap.AverageLuminance = lumSum / (255f * count);
@@ -204,6 +208,86 @@ namespace LivePortals
             }
             if (hits.Count > 0) { hits.Sort(); median = hits[hits.Count / 2]; } else median = range;
             return depth;
+        }
+
+        private const int BackdropRes = 256;
+
+        /// <summary>
+        /// A background-only copy of the face at lower resolution: pixels on the near side of a depth jump are
+        /// removed and filled from the surrounding far pixels (or sky), so what shows through a gap in the relief
+        /// is plausible background instead of a second copy of the near object at the wrong distance.
+        /// </summary>
+        private static Texture2D BuildBackdrop(Color32[] col, bool[] sky, int res, float[] depth, int n, float range)
+        {
+            int b = BackdropRes;
+            // Foreground nodes: clearly nearer than the farthest thing within two nodes of them.
+            var fg = new bool[n * n];
+            for (int y = 0; y < n; y++)
+                for (int x = 0; x < n; x++)
+                {
+                    float d = depth[y * n + x];
+                    if (d >= range * 0.98f) continue;
+                    float localMax = d;
+                    for (int dy = -2; dy <= 2; dy++)
+                        for (int dx = -2; dx <= 2; dx++)
+                        {
+                            int xx = Mathf.Clamp(x + dx, 0, n - 1), yy = Mathf.Clamp(y + dy, 0, n - 1);
+                            float v = depth[yy * n + xx];
+                            if (v > localMax) localMax = v;
+                        }
+                    fg[y * n + x] = d < localMax * 0.7f && localMax - d > 0.8f;
+                }
+
+            var px = new Color32[b * b];
+            var state = new byte[b * b]; // 0 unknown, 1 colour, 2 sky
+            for (int y = 0; y < b; y++)
+            {
+                int sy = y * (res - 1) / (b - 1), ny = y * (n - 1) / (b - 1);
+                for (int x = 0; x < b; x++)
+                {
+                    int sx = x * (res - 1) / (b - 1), nx = x * (n - 1) / (b - 1);
+                    int p = y * b + x;
+                    if (sky[sy * res + sx]) { state[p] = 2; px[p] = new Color32(0, 0, 0, 0); }
+                    else if (fg[ny * n + nx]) state[p] = 0;
+                    else { state[p] = 1; px[p] = col[sy * res + sx]; }
+                }
+            }
+            // Dilate known pixels into the unknown ones, a ring per pass. Sky wins where it touches.
+            var next = new byte[b * b];
+            for (int pass = 0; pass < 48; pass++)
+            {
+                bool any = false;
+                System.Array.Copy(state, next, state.Length);
+                for (int y = 0; y < b; y++)
+                    for (int x = 0; x < b; x++)
+                    {
+                        int p = y * b + x;
+                        if (state[p] != 0) continue;
+                        int r = 0, g = 0, bl = 0, cnt = 0; bool skyN = false;
+                        if (x > 0) Acc(state[p - 1], px[p - 1], ref r, ref g, ref bl, ref cnt, ref skyN);
+                        if (x < b - 1) Acc(state[p + 1], px[p + 1], ref r, ref g, ref bl, ref cnt, ref skyN);
+                        if (y > 0) Acc(state[p - b], px[p - b], ref r, ref g, ref bl, ref cnt, ref skyN);
+                        if (y < b - 1) Acc(state[p + b], px[p + b], ref r, ref g, ref bl, ref cnt, ref skyN);
+                        if (skyN) { next[p] = 2; px[p] = new Color32(0, 0, 0, 0); any = true; }
+                        else if (cnt > 0) { next[p] = 1; px[p] = new Color32((byte)(r / cnt), (byte)(g / cnt), (byte)(bl / cnt), 255); any = true; }
+                    }
+                var t = state; state = next; next = t;
+                if (!any) break;
+            }
+            for (int p = 0; p < px.Length; p++) if (state[p] == 0) px[p] = new Color32(0, 0, 0, 0);
+
+            var tex = new Texture2D(b, b, TextureFormat.RGBA32, true);
+            tex.wrapMode = TextureWrapMode.Clamp;
+            tex.filterMode = FilterMode.Bilinear;
+            tex.SetPixels32(px);
+            tex.Apply(true, false);
+            return tex;
+        }
+
+        private static void Acc(byte s, Color32 c, ref int r, ref int g, ref int b, ref int cnt, ref bool sky)
+        {
+            if (s == 2) sky = true;
+            else if (s == 1) { r += c.r; g += c.g; b += c.b; cnt++; }
         }
 
         private static void Render(Camera cam, RenderTexture rt, Texture2D into, int res)

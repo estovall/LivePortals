@@ -20,7 +20,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "LivePortals";
-        public const string VERSION = "0.3.7";
+        public const string VERSION = "0.4.0";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -101,7 +101,7 @@ namespace LivePortals
             DepthRange = Config.Bind("1. General", "DepthRange", 120f,
                 new ConfigDescription("Metres of depth captured per pixel; anything farther (and the sky) sits at this distance. Larger = flatter far parallax, less stretch at edges.",
                     new AcceptableValueRange<float>(20f, 500f)));
-            DepthGrid = Config.Bind("1. General", "DepthGrid", 64,
+            DepthGrid = Config.Bind("1. General", "DepthGrid", 96,
                 new ConfigDescription("Vertices per edge of each displaced capture face. Higher = crisper silhouettes, more triangles.",
                     new AcceptableValueRange<int>(16, 256)));
             RangeMultiplier = Config.Bind("2. Window", "RangeMultiplier", 4f,
