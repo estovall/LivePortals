@@ -3,10 +3,17 @@ using UnityEngine;
 
 namespace LivePortals
 {
-    /// <summary>One capture: six cube faces (alpha 0 where the capture saw sky) plus the lighting it was taken under.</summary>
+    /// <summary>
+    /// One capture: six cube faces (alpha 0 where the capture saw sky), a view-depth map per face, and the
+    /// lighting it was taken under.
+    /// </summary>
     internal class PortalCapture
     {
         public Texture2D[] Faces = new Texture2D[6];
+        /// <summary>View depth per face in metres, row-major, DepthSize x DepthSize; DepthRange means "sky / far".</summary>
+        public float[][] Depth = new float[6][];
+        public int DepthSize;
+        public float DepthRange = 120f;
         public Color Sun;        // directional light colour * intensity
         public Color Ambient;    // ambient colour
         public Color Fog;        // fog colour
@@ -36,8 +43,10 @@ namespace LivePortals
 
         /// <summary>
         /// Render six 90-degree faces from pos/rot with a copy of the main camera (geometry only, no sky camera).
-        /// Each face is rendered twice, cleared to black and to white; pixels that differ were never drawn, i.e. sky,
-        /// and get alpha 0. The local player, this portal's swirl effect and every window are hidden meanwhile.
+        /// Per face: one render with the game's own fog for colour; two with fog off, cleared black and white, whose
+        /// differing pixels were never drawn (sky, alpha 0); two with linear black/white fog over DepthRange, whose
+        /// difference is the fog factor and therefore the view depth of every pixel, shader-independent.
+        /// The local player, this portal's swirl effect and every window are hidden meanwhile.
         /// </summary>
         internal static PortalCapture Take(Vector3 pos, Quaternion rot, TeleportWorld portal)
         {
@@ -45,6 +54,8 @@ namespace LivePortals
             if (gc == null || gc.m_camera == null) { Plugin.Log.LogWarning("LivePortals: no game camera, cannot capture."); return null; }
             var main = gc.m_camera;
             int res = Plugin.CaptureResolution.Value;
+            int dres = Mathf.Clamp(Plugin.DepthGrid.Value + 1, 9, res);
+            float depthRange = Plugin.DepthRange.Value;
 
             var go = new GameObject("LivePortals_CaptureCamera");
             var cam = go.AddComponent<Camera>();
@@ -58,66 +69,85 @@ namespace LivePortals
             cam.depthTextureMode = DepthTextureMode.None;
             cam.nearClipPlane = 0.08f;
             int mask = main.cullingMask;
-            if (gc.m_skyCamera != null) mask &= ~gc.m_skyCamera.cullingMask;
-            mask &= ~(1 << Plugin.HiddenLayer);
+            if (gc.m_skyCamera != null) mask &= ~(gc.m_skyCamera.cullingMask & ~main.cullingMask);
             cam.cullingMask = mask;
+            cam.ResetProjectionMatrix();
 
+            var rtColor = new RenderTexture(res, res, 24, RenderTextureFormat.ARGB32);
             var rtA = new RenderTexture(res, res, 24, RenderTextureFormat.ARGB32);
             var rtB = new RenderTexture(res, res, 24, RenderTextureFormat.ARGB32);
+            var texC = new Texture2D(res, res, TextureFormat.RGBA32, false);
             var texA = new Texture2D(res, res, TextureFormat.RGBA32, false);
             var texB = new Texture2D(res, res, TextureFormat.RGBA32, false);
 
             var hidden = new List<Renderer>();
             HideForCapture(portal, hidden);
-            bool fog = RenderSettings.fog;
-            var cap = new PortalCapture();
+            bool fogOn = RenderSettings.fog; var fogMode = RenderSettings.fogMode; var fogColor = RenderSettings.fogColor;
+            float fogStart = RenderSettings.fogStartDistance, fogEnd = RenderSettings.fogEndDistance, fogDensity = RenderSettings.fogDensity;
+            var cap = new PortalCapture { DepthSize = dres, DepthRange = depthRange };
             try
             {
-                RenderSettings.fog = fog; // keep the game's fog: it is part of what you would see
                 for (int i = 0; i < 6; i++)
                 {
                     cam.transform.SetPositionAndRotation(pos, rot * FaceRotations[i]);
-                    cam.backgroundColor = new Color(0f, 0f, 0f, 1f);
-                    cam.targetTexture = rtA;
-                    cam.Render();
-                    cam.backgroundColor = new Color(1f, 1f, 1f, 1f);
-                    cam.targetTexture = rtB;
-                    cam.Render();
-                    cam.targetTexture = null;
 
-                    RenderTexture.active = rtA; texA.ReadPixels(new Rect(0, 0, res, res), 0, 0, false);
-                    RenderTexture.active = rtB; texB.ReadPixels(new Rect(0, 0, res, res), 0, 0, false);
-                    RenderTexture.active = null;
+                    // 1. Colour, with the game's fog as it is right now.
+                    RenderSettings.fog = fogOn; RenderSettings.fogMode = fogMode; RenderSettings.fogColor = fogColor;
+                    RenderSettings.fogStartDistance = fogStart; RenderSettings.fogEndDistance = fogEnd; RenderSettings.fogDensity = fogDensity;
+                    cam.backgroundColor = fogColor;
+                    Render(cam, rtColor, texC, res);
 
-                    var a = texA.GetPixels32();
-                    var b = texB.GetPixels32();
+                    // 2. Sky mask: no fog, black then white clear.
+                    RenderSettings.fog = false;
+                    cam.backgroundColor = Color.black; Render(cam, rtA, texA, res);
+                    var skyA = texA.GetPixels32();
+                    cam.backgroundColor = Color.white; Render(cam, rtB, texB, res);
+                    var skyB = texB.GetPixels32();
+
+                    // 3. Depth: linear fog 0..DepthRange, black then white. B-A = 1-factor = z/DepthRange.
+                    RenderSettings.fog = true; RenderSettings.fogMode = FogMode.Linear;
+                    RenderSettings.fogStartDistance = 0f; RenderSettings.fogEndDistance = depthRange;
+                    RenderSettings.fogColor = Color.black; cam.backgroundColor = Color.black; Render(cam, rtA, texA, res);
+                    var fogA = texA.GetPixels32();
+                    RenderSettings.fogColor = Color.white; cam.backgroundColor = Color.white; Render(cam, rtB, texB, res);
+                    var fogB = texB.GetPixels32();
+
+                    var col = texC.GetPixels32();
                     float exposure = Plugin.CaptureExposure.Value;
                     long lumSum = 0, rSum = 0, gSum = 0, bSum = 0; int count = 0;
-                    for (int p = 0; p < a.Length; p++)
+                    var depthFull = new float[res * res];
+                    for (int p = 0; p < col.Length; p++)
                     {
-                        Color32 ca = a[p], cb = b[p];
-                        int diff = Mathf.Abs(ca.r - cb.r) + Mathf.Abs(ca.g - cb.g) + Mathf.Abs(ca.b - cb.b);
+                        Color32 a = skyA[p], b = skyB[p];
+                        int diff = Mathf.Abs(a.r - b.r) + Mathf.Abs(a.g - b.g) + Mathf.Abs(a.b - b.b);
                         if (diff > 60)
                         {
-                            a[p] = new Color32(0, 0, 0, 0); // never drawn: sky
+                            col[p] = new Color32(0, 0, 0, 0); // never drawn: sky
+                            depthFull[p] = depthRange;
                             continue;
                         }
+                        Color32 fa = fogA[p], fb = fogB[p];
+                        float dz = ((fb.r - fa.r) + (fb.g - fa.g) + (fb.b - fa.b)) / (3f * 255f);
+                        depthFull[p] = Mathf.Clamp01(dz) * depthRange;
+
+                        Color32 c = col[p];
                         if (exposure != 1f)
                         {
-                            ca.r = (byte)Mathf.Clamp(Mathf.RoundToInt(ca.r * exposure), 0, 255);
-                            ca.g = (byte)Mathf.Clamp(Mathf.RoundToInt(ca.g * exposure), 0, 255);
-                            ca.b = (byte)Mathf.Clamp(Mathf.RoundToInt(ca.b * exposure), 0, 255);
+                            c.r = (byte)Mathf.Clamp(Mathf.RoundToInt(c.r * exposure), 0, 255);
+                            c.g = (byte)Mathf.Clamp(Mathf.RoundToInt(c.g * exposure), 0, 255);
+                            c.b = (byte)Mathf.Clamp(Mathf.RoundToInt(c.b * exposure), 0, 255);
                         }
-                        ca.a = 255;
-                        a[p] = ca;
-                        if (i == 0 && (p & 15) == 0) { lumSum += (ca.r * 54 + ca.g * 183 + ca.b * 19) >> 8; rSum += ca.r; gSum += ca.g; bSum += ca.b; count++; }
+                        c.a = 255;
+                        col[p] = c;
+                        if (i == 0 && (p & 15) == 0) { lumSum += (c.r * 54 + c.g * 183 + c.b * 19) >> 8; rSum += c.r; gSum += c.g; bSum += c.b; count++; }
                     }
                     var face = new Texture2D(res, res, TextureFormat.RGBA32, true);
                     face.wrapMode = TextureWrapMode.Clamp;
                     face.filterMode = FilterMode.Bilinear;
-                    face.SetPixels32(a);
+                    face.SetPixels32(col);
                     face.Apply(true, false);
                     cap.Faces[i] = face;
+                    cap.Depth[i] = Downsample(depthFull, res, dres);
                     if (i == 0 && count > 0)
                     {
                         cap.AverageLuminance = lumSum / (255f * count);
@@ -127,18 +157,61 @@ namespace LivePortals
             }
             finally
             {
-                RenderSettings.fog = fog;
+                RenderSettings.fog = fogOn; RenderSettings.fogMode = fogMode; RenderSettings.fogColor = fogColor;
+                RenderSettings.fogStartDistance = fogStart; RenderSettings.fogEndDistance = fogEnd; RenderSettings.fogDensity = fogDensity;
                 foreach (var r in hidden) if (r != null) r.enabled = true;
                 PortalWindow.SetAllVisible(true);
-                Object.Destroy(texA); Object.Destroy(texB);
-                rtA.Release(); rtB.Release();
-                Object.Destroy(rtA); Object.Destroy(rtB);
+                Object.Destroy(texA); Object.Destroy(texB); Object.Destroy(texC);
+                rtA.Release(); rtB.Release(); rtColor.Release();
+                Object.Destroy(rtA); Object.Destroy(rtB); Object.Destroy(rtColor);
                 Object.Destroy(go);
             }
 
             Lighting.Sample(out cap.Sun, out cap.Ambient, out cap.Fog, out cap.DayFraction);
             cap.TakenAt = System.DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             return cap;
+        }
+
+        private static void Render(Camera cam, RenderTexture rt, Texture2D into, int res)
+        {
+            cam.targetTexture = rt;
+            cam.Render();
+            cam.targetTexture = null;
+            RenderTexture.active = rt;
+            into.ReadPixels(new Rect(0, 0, res, res), 0, 0, false);
+            RenderTexture.active = null;
+        }
+
+        /// <summary>
+        /// Depth at grid nodes: the minimum over the block around each node, so thin near things (a post, a
+        /// branch) keep their distance instead of averaging away into the background.
+        /// </summary>
+        internal static float[] Downsample(float[] full, int res, int n)
+        {
+            var outp = new float[n * n];
+            float step = (res - 1) / (float)(n - 1);
+            int rad = Mathf.Max(1, Mathf.RoundToInt(step * 0.6f));
+            for (int y = 0; y < n; y++)
+            {
+                int cy = Mathf.RoundToInt(y * step);
+                for (int x = 0; x < n; x++)
+                {
+                    int cx = Mathf.RoundToInt(x * step);
+                    float m = float.MaxValue;
+                    for (int dy = -rad; dy <= rad; dy++)
+                    {
+                        int yy = Mathf.Clamp(cy + dy, 0, res - 1);
+                        for (int dx = -rad; dx <= rad; dx++)
+                        {
+                            int xx = Mathf.Clamp(cx + dx, 0, res - 1);
+                            float v = full[yy * res + xx];
+                            if (v < m) m = v;
+                        }
+                    }
+                    outp[y * n + x] = m;
+                }
+            }
+            return outp;
         }
 
         private static void HideForCapture(TeleportWorld portal, List<Renderer> hidden)
@@ -187,7 +260,6 @@ namespace LivePortals
             float capFogLum = Luminance(cap.Fog), nowFogLum = Luminance(fog);
             if (capFogLum > 0.01f && nowFogLum > 0.01f)
             {
-                // Normalise both fog colours to unit luminance and take the ratio: pure hue shift, no brightness.
                 Color a = cap.Fog / capFogLum, b = fog / nowFogLum;
                 chroma = new Color(Mathf.Clamp(b.r / Mathf.Max(0.05f, a.r), 0.3f, 3f),
                                    Mathf.Clamp(b.g / Mathf.Max(0.05f, a.g), 0.3f, 3f),

@@ -20,7 +20,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "LivePortals";
-        public const string VERSION = "0.1.0";
+        public const string VERSION = "0.2.0";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -30,6 +30,8 @@ namespace LivePortals
         internal static ConfigEntry<bool> Enabled;
         internal static ConfigEntry<int> CaptureResolution;
         internal static ConfigEntry<int> WindowResolution;
+        internal static ConfigEntry<float> DepthRange;
+        internal static ConfigEntry<int> DepthGrid;
         internal static ConfigEntry<float> RangeMultiplier;
         internal static ConfigEntry<float> FullMultiplier;
         internal static ConfigEntry<float> WindowWidth;
@@ -49,9 +51,8 @@ namespace LivePortals
         internal static ConfigEntry<int> RenderEveryNFrames;
         internal static ConfigEntry<bool> DebugLog;
 
-        /// <summary>A layer no game camera renders, used for each window's parallax cube.</summary>
-        internal static int HiddenLayer = 31;
-        private static bool _hiddenLayerFound;
+        /// <summary>Layer of the capture meshes. They are only enabled while a window camera renders, so it does not matter who else renders it.</summary>
+        internal const int FaceLayer = 31;
 
         private float _scanTimer;
         private readonly List<TeleportWorld> _scan = new List<TeleportWorld>();
@@ -68,8 +69,14 @@ namespace LivePortals
             WindowResolution = Config.Bind("1. General", "WindowResolution", 768,
                 new ConfigDescription("Pixels of the texture each window is drawn into every frame.",
                     new AcceptableValueRange<int>(256, 2048)));
-            RangeMultiplier = Config.Bind("2. Window", "RangeMultiplier", 2f,
-                new ConfigDescription("The window starts to appear at this many times the portal's activation range (5 m in vanilla, so 2 = 10 m).",
+            DepthRange = Config.Bind("1. General", "DepthRange", 120f,
+                new ConfigDescription("Metres of depth captured per pixel; anything farther (and the sky) sits at this distance. Larger = flatter far parallax, less stretch at edges.",
+                    new AcceptableValueRange<float>(20f, 500f)));
+            DepthGrid = Config.Bind("1. General", "DepthGrid", 96,
+                new ConfigDescription("Vertices per edge of each displaced capture face. Higher = crisper silhouettes, more triangles.",
+                    new AcceptableValueRange<int>(16, 256)));
+            RangeMultiplier = Config.Bind("2. Window", "RangeMultiplier", 4f,
+                new ConfigDescription("The window starts to appear at this many times the portal's activation range (5 m in vanilla, so 4 = 20 m).",
                     new AcceptableValueRange<float>(1f, 10f)));
             FullMultiplier = Config.Bind("2. Window", "FullMultiplier", 1f,
                 new ConfigDescription("The window is fully visible from this many times the activation range inward.",
@@ -78,8 +85,8 @@ namespace LivePortals
                 new ConfigDescription("Width of the window pane in metres (the portal's opening).", new AcceptableValueRange<float>(0.5f, 5f)));
             WindowHeight = Config.Bind("2. Window", "WindowHeight", 2.3f,
                 new ConfigDescription("Height of the window pane in metres.", new AcceptableValueRange<float>(0.5f, 5f)));
-            WindowCenterHeight = Config.Bind("2. Window", "WindowCenterHeight", 1.35f,
-                new ConfigDescription("Height of the pane's centre above the portal's base.", new AcceptableValueRange<float>(0f, 4f)));
+            WindowCenterHeight = Config.Bind("2. Window", "WindowCenterHeight", 0f,
+                new ConfigDescription("Pane centre offset above the portal ring's centre (its proximity point), metres.", new AcceptableValueRange<float>(-2f, 2f)));
             WindowForwardOffset = Config.Bind("2. Window", "WindowForwardOffset", 0f,
                 new ConfigDescription("Pane offset along the portal's forward axis, metres. Nudge if it fights the frame or the swirl.",
                     new AcceptableValueRange<float>(-1f, 1f)));
@@ -125,29 +132,6 @@ namespace LivePortals
             if (DebugLog.Value) Log.LogInfo("LivePortals: " + msg);
         }
 
-        /// <summary>Pick a layer neither the main nor the sky camera renders, once the cameras exist.</summary>
-        internal static bool EnsureHiddenLayer()
-        {
-            if (_hiddenLayerFound) return true;
-            var gc = GameCamera.instance;
-            if (gc == null || gc.m_camera == null) return false;
-            int used = gc.m_camera.cullingMask;
-            if (gc.m_skyCamera != null) used |= gc.m_skyCamera.cullingMask;
-            for (int i = 31; i >= 8; i--)
-            {
-                if ((used & (1 << i)) == 0)
-                {
-                    HiddenLayer = i;
-                    _hiddenLayerFound = true;
-                    Dbg("hidden layer " + i + (string.IsNullOrEmpty(LayerMask.LayerToName(i)) ? "" : " (" + LayerMask.LayerToName(i) + ")"));
-                    return true;
-                }
-            }
-            HiddenLayer = 31;
-            _hiddenLayerFound = true;
-            return true;
-        }
-
         // ------------------------------------------------------------------
         // Window management: attach a PortalWindow to every connected portal near the player.
         // ------------------------------------------------------------------
@@ -155,7 +139,7 @@ namespace LivePortals
         {
             if (!Enabled.Value) return;
             var player = Player.m_localPlayer;
-            if (player == null || !EnsureHiddenLayer()) return;
+            if (player == null || GameCamera.instance == null) return;
             _scanTimer -= Time.deltaTime;
             if (_scanTimer > 0f) return;
             _scanTimer = 0.5f;

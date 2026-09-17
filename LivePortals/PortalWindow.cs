@@ -5,18 +5,19 @@ namespace LivePortals
 {
     /// <summary>
     /// The window on one portal. A pane over the opening shows a texture rendered every frame by a small camera
-    /// that looks at a cube of the partner portal's capture. The camera's frustum is fitted to the pane as seen
-    /// from your eye (off-axis projection) and its orientation is your view direction mapped through the portal
-    /// into the partner's frame, so the picture has real parallax from either side of the portal. The cube faces
-    /// are transparent where the capture saw sky, and the camera draws the current sky behind them.
+    /// that looks at the partner portal's capture: six depth-displaced meshes around the eye, textured with the
+    /// captured faces (transparent where they saw sky), with the current sky drawn behind them. The camera's
+    /// frustum is fitted to the pane as seen from your eye (off-axis projection) and its orientation is your view
+    /// direction mapped through the portal into the partner's frame, so the picture has real parallax from either
+    /// side. The meshes are switched on only for the instant that camera renders, so no other camera sees them.
     /// </summary>
     public class PortalWindow : MonoBehaviour
     {
         private static readonly List<PortalWindow> All = new List<PortalWindow>();
         private static readonly Quaternion Flip = Quaternion.Euler(0f, 180f, 0f);
-        private const float CubeDistance = 100f;
         private static Mesh _quad;
         private static bool _hiddenForCapture;
+        private static bool _loggedMasks;
 
         private TeleportWorld _tw;
         private ZNetView _nview;
@@ -25,12 +26,16 @@ namespace LivePortals
         private long _capTime = -2;
         private float _capCheckTimer;
         private float _tintTimer;
+        private bool _loggedGeometry;
 
         private GameObject _pane;
         private Renderer _paneRenderer;
         private Material _paneMat;
         private GameObject _anchor;
+        private readonly Renderer[] _faceRenderers = new Renderer[6];
+        private readonly MeshFilter[] _faceFilters = new MeshFilter[6];
         private readonly Material[] _faceMats = new Material[6];
+        private readonly Mesh[] _faceMeshes = new Mesh[6];
         private Camera _cam;
         private RenderTexture _rt;
         private Light _light;
@@ -106,21 +111,28 @@ namespace LivePortals
                     if (stored >= 0)
                     {
                         _cap = Storage.Load(target);
-                        if (_cap != null) { EnsureBuilt(gc); ApplyCaptureToFaces(); Plugin.Dbg("window at " + Storage.Key(_nview.GetZDO().m_uid) + " shows capture " + Storage.Key(target)); }
+                        if (_cap != null) { EnsureBuilt(gc); ApplyCapture(); Plugin.Dbg("window at " + Storage.Key(_nview.GetZDO().m_uid) + " shows capture " + Storage.Key(target)); }
                     }
                 }
             }
             if (_cap == null) { Hide(); return; }
             EnsureBuilt(gc);
 
-            // ---- Pane geometry in the portal's frame ----
+            // ---- Pane geometry: centred on the portal's proximity point (the ring), in the portal's frame ----
             Quaternion rA = transform.rotation;
             Quaternion rB = tz.GetRotation();
             Vector3 up = rA * Vector3.up, n = rA * Vector3.forward, right = rA * Vector3.right;
             float w = Plugin.WindowWidth.Value, h = Plugin.WindowHeight.Value;
-            Vector3 c = transform.position + rA * new Vector3(0f, Plugin.WindowCenterHeight.Value, Plugin.WindowForwardOffset.Value);
+            Vector3 basePos = _tw.m_proximityRoot != null ? _tw.m_proximityRoot.position : transform.position;
+            Vector3 c = basePos + rA * new Vector3(0f, Plugin.WindowCenterHeight.Value, Plugin.WindowForwardOffset.Value);
             _pane.transform.SetPositionAndRotation(c, rA);
             _pane.transform.localScale = new Vector3(w, h, 1f);
+            if (!_loggedGeometry)
+            {
+                _loggedGeometry = true;
+                var mb = _tw.m_model != null ? _tw.m_model.bounds : new Bounds(transform.position, Vector3.zero);
+                Plugin.Log.LogInfo($"LivePortals: portal {name} pos {transform.position} fwd {n} up {up} scale {transform.lossyScale} proximity {(_tw.m_proximityRoot != null ? _tw.m_proximityRoot.position.ToString() : "none")} model bounds centre {mb.center} size {mb.size}; pane centre {c}");
+            }
 
             // ---- Off-axis frustum from the eye through the pane (Kooima's generalized perspective) ----
             Vector3 pe = gc.m_camera.transform.position;
@@ -161,7 +173,12 @@ namespace LivePortals
             _visible = true;
             ApplyVisibility();
             if (!_hiddenForCapture && (_frame++ % Mathf.Max(1, Plugin.RenderEveryNFrames.Value)) == 0)
+            {
+                // The capture meshes exist only while this camera renders: no other camera ever sees them.
+                for (int i = 0; i < 6; i++) if (_faceRenderers[i] != null) _faceRenderers[i].enabled = true;
                 _cam.Render();
+                for (int i = 0; i < 6; i++) if (_faceRenderers[i] != null) _faceRenderers[i].enabled = false;
+            }
         }
 
         private void UpdateLight(Vector3 c, Vector3 outward, Color tint, float alpha)
@@ -195,9 +212,8 @@ namespace LivePortals
             _rt = new RenderTexture(res, res, 24, RenderTextureFormat.ARGB32) { name = "LivePortals_Window" };
             _rt.Create();
 
-            // Pane over the opening (default layer, visible to the game camera; hidden during captures).
+            // Pane over the opening: a free object in world space (not parented, so the prefab's scale cannot touch it).
             _pane = new GameObject("LivePortals_Pane");
-            _pane.transform.SetParent(transform, false);
             _pane.AddComponent<MeshFilter>().sharedMesh = _quad;
             _paneRenderer = _pane.AddComponent<MeshRenderer>();
             _paneMat = new Material(FindShader("Sprites/Default", "Unlit/Transparent", "Unlit/Texture"));
@@ -207,51 +223,62 @@ namespace LivePortals
             _paneRenderer.receiveShadows = false;
             _paneRenderer.enabled = false;
 
-            // Parallax cube: six faces around an anchor that sits on the eye, oriented like the partner portal.
-            _anchor = new GameObject("LivePortals_Cube");
-            _anchor.layer = Plugin.HiddenLayer;
+            // Capture meshes around an anchor that sits on the eye, oriented like the partner portal.
+            _anchor = new GameObject("LivePortals_Capture");
             for (int i = 0; i < 6; i++)
             {
                 var f = new GameObject("Face" + i);
-                f.layer = Plugin.HiddenLayer;
+                f.layer = Plugin.FaceLayer;
                 f.transform.SetParent(_anchor.transform, false);
                 f.transform.localRotation = Capture.FaceRotations[i];
-                f.transform.localPosition = Capture.FaceRotations[i] * new Vector3(0f, 0f, CubeDistance);
-                f.transform.localScale = new Vector3(2f * CubeDistance * 1.004f, 2f * CubeDistance * 1.004f, 1f);
-                f.AddComponent<MeshFilter>().sharedMesh = _quad;
+                _faceFilters[i] = f.AddComponent<MeshFilter>();
                 var mr = f.AddComponent<MeshRenderer>();
                 _faceMats[i] = new Material(FindShader("Sprites/Default", "Unlit/Transparent", "Unlit/Texture"));
                 mr.sharedMaterial = _faceMats[i];
                 mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                 mr.receiveShadows = false;
+                mr.enabled = false;
+                _faceRenderers[i] = mr;
             }
 
-            // Window camera: draws the current sky (like the game's sky camera) and the cube, into the pane's texture.
+            // Window camera: draws the current sky like the game's sky camera, then the capture meshes.
             var camGo = new GameObject("LivePortals_WindowCamera");
             _cam = camGo.AddComponent<Camera>();
             _cam.enabled = false;
             var sky = gc.m_skyCamera;
-            if (Plugin.LiveSky.Value && sky != null)
+            int skyOnly = sky != null ? (sky.cullingMask & ~gc.m_camera.cullingMask) : 0;
+            if (skyOnly == 0)
+            {
+                int l = LayerMask.NameToLayer("skybox");
+                if (l >= 0) skyOnly = 1 << l;
+            }
+            if (Plugin.LiveSky.Value && sky != null && skyOnly != 0)
             {
                 _cam.CopyFrom(sky);
-                _cam.cullingMask = sky.cullingMask | (1 << Plugin.HiddenLayer);
+                _cam.cullingMask = skyOnly | (1 << Plugin.FaceLayer);
             }
             else
             {
                 _cam.CopyFrom(gc.m_camera);
                 _cam.clearFlags = CameraClearFlags.SolidColor;
                 _cam.backgroundColor = RenderSettings.fogColor;
-                _cam.cullingMask = 1 << Plugin.HiddenLayer;
+                _cam.cullingMask = 1 << Plugin.FaceLayer;
+            }
+            if (!_loggedMasks)
+            {
+                _loggedMasks = true;
+                Plugin.Log.LogInfo($"LivePortals: main mask {gc.m_camera.cullingMask:X8}, sky mask {(sky != null ? sky.cullingMask.ToString("X8") : "none")}, sky-only {skyOnly:X8}, window mask {_cam.cullingMask:X8}, face layer {Plugin.FaceLayer}, sky clear {(sky != null ? sky.clearFlags.ToString() : "n/a")}");
             }
             _cam.enabled = false;
             _cam.depthTextureMode = DepthTextureMode.None;
             _cam.nearClipPlane = 0.05f;
-            if (_cam.farClipPlane < CubeDistance * 2f) _cam.farClipPlane = CubeDistance * 2f;
+            float need = Plugin.DepthRange.Value * 2f;
+            if (_cam.farClipPlane < need) _cam.farClipPlane = need;
             _cam.targetTexture = _rt;
             _cam.rect = new Rect(0f, 0f, 1f, 1f);
+            _cam.orthographic = false;
 
             var lightGo = new GameObject("LivePortals_Light");
-            lightGo.transform.SetParent(transform, false);
             _light = lightGo.AddComponent<Light>();
             _light.type = LightType.Spot;
             _light.spotAngle = 150f;
@@ -259,17 +286,83 @@ namespace LivePortals
             _light.enabled = false;
         }
 
-        private void ApplyCaptureToFaces()
+        private void ApplyCapture()
         {
             if (_cap == null) return;
-            for (int i = 0; i < 6; i++) if (_faceMats[i] != null) _faceMats[i].mainTexture = _cap.Faces[i];
+            for (int i = 0; i < 6; i++)
+            {
+                if (_faceMats[i] != null) _faceMats[i].mainTexture = _cap.Faces[i];
+                if (_faceMeshes[i] != null) Destroy(_faceMeshes[i]);
+                _faceMeshes[i] = BuildFaceMesh(_cap.Depth[i], _cap.DepthSize, _cap.DepthRange);
+                if (_faceFilters[i] != null) _faceFilters[i].sharedMesh = _faceMeshes[i];
+            }
             _tintTimer = 0f;
+        }
+
+        /// <summary>
+        /// A grid over the 90-degree face, each vertex pushed out along its view ray to the captured view depth.
+        /// Direction for (u,v) is ((u-0.5)*2, (v-0.5)*2, 1) in the face's frame; times the view depth z that puts
+        /// the vertex exactly where the captured surface was. Sky vertices sit at DepthRange.
+        /// </summary>
+        private static Mesh BuildFaceMesh(float[] depth, int n, float range)
+        {
+            var m = new Mesh { name = "LivePortals_Face" };
+            if (depth == null || n < 2)
+            {
+                // No depth: a flat face at the range.
+                return FlatFace(range);
+            }
+            var verts = new Vector3[n * n];
+            var uvs = new Vector2[n * n];
+            var cols = new Color32[n * n];
+            for (int y = 0; y < n; y++)
+            {
+                float v = y / (float)(n - 1);
+                for (int x = 0; x < n; x++)
+                {
+                    float u = x / (float)(n - 1);
+                    float z = Mathf.Clamp(depth[y * n + x], 0.2f, range);
+                    verts[y * n + x] = new Vector3((u - 0.5f) * 2f * z, (v - 0.5f) * 2f * z, z);
+                    uvs[y * n + x] = new Vector2(u, v);
+                    cols[y * n + x] = new Color32(255, 255, 255, 255);
+                }
+            }
+            var tris = new int[(n - 1) * (n - 1) * 6];
+            int k = 0;
+            for (int y = 0; y < n - 1; y++)
+                for (int x = 0; x < n - 1; x++)
+                {
+                    int i0 = y * n + x, i1 = i0 + 1, i2 = i0 + n, i3 = i2 + 1;
+                    tris[k++] = i0; tris[k++] = i2; tris[k++] = i1;
+                    tris[k++] = i1; tris[k++] = i2; tris[k++] = i3;
+                }
+            m.indexFormat = n * n > 65000 ? UnityEngine.Rendering.IndexFormat.UInt32 : UnityEngine.Rendering.IndexFormat.UInt16;
+            m.vertices = verts; m.uv = uvs; m.colors32 = cols; m.triangles = tris;
+            m.RecalculateBounds();
+            return m;
+        }
+
+        private static Mesh FlatFace(float range)
+        {
+            var m = new Mesh { name = "LivePortals_FlatFace" };
+            float s = range * 1.004f;
+            m.vertices = new[] { new Vector3(-s, -s, range), new Vector3(s, -s, range), new Vector3(s, s, range), new Vector3(-s, s, range) };
+            m.uv = new[] { new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(1f, 1f), new Vector2(0f, 1f) };
+            m.colors = new[] { Color.white, Color.white, Color.white, Color.white };
+            m.triangles = new[] { 0, 2, 1, 0, 3, 2 };
+            m.RecalculateBounds();
+            return m;
         }
 
         private void ReleaseCapture()
         {
             if (_cap != null) { _cap.Destroy(); _cap = null; }
-            for (int i = 0; i < 6; i++) if (_faceMats[i] != null) _faceMats[i].mainTexture = null;
+            for (int i = 0; i < 6; i++)
+            {
+                if (_faceMats[i] != null) _faceMats[i].mainTexture = null;
+                if (_faceMeshes[i] != null) { Destroy(_faceMeshes[i]); _faceMeshes[i] = null; }
+                if (_faceFilters[i] != null) _faceFilters[i].sharedMesh = null;
+            }
         }
 
         private void Hide()

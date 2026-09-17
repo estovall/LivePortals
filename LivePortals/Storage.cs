@@ -25,15 +25,22 @@ namespace LivePortals
         }
 
         private static string FacePath(string dir, string key, int i) => Path.Combine(dir, key + "_" + i + ".png");
+        private static string DepthPath(string dir, string key, int i) => Path.Combine(dir, key + "_d" + i + ".png");
         private static string MetaPath(string dir, string key) => Path.Combine(dir, key + ".txt");
 
         internal static void Save(ZDOID id, PortalCapture cap)
         {
             string dir = Dir(), key = Key(id);
-            for (int i = 0; i < 6; i++) File.WriteAllBytes(FacePath(dir, key, i), cap.Faces[i].EncodeToPNG());
+            for (int i = 0; i < 6; i++)
+            {
+                File.WriteAllBytes(FacePath(dir, key, i), cap.Faces[i].EncodeToPNG());
+                if (cap.Depth[i] != null) File.WriteAllBytes(DepthPath(dir, key, i), EncodeDepth(cap.Depth[i], cap.DepthSize, cap.DepthRange));
+            }
             string meta = string.Join("\n", new[]
             {
                 "takenAt=" + cap.TakenAt.ToString(CultureInfo.InvariantCulture),
+                "depthSize=" + cap.DepthSize.ToString(CultureInfo.InvariantCulture),
+                "depthRange=" + cap.DepthRange.ToString("R", CultureInfo.InvariantCulture),
                 "sun=" + C(cap.Sun), "ambient=" + C(cap.Ambient), "fog=" + C(cap.Fog),
                 "dayFraction=" + cap.DayFraction.ToString("R", CultureInfo.InvariantCulture),
                 "avgLum=" + cap.AverageLuminance.ToString("R", CultureInfo.InvariantCulture),
@@ -78,12 +85,22 @@ namespace LivePortals
                     switch (k)
                     {
                         case "takenAt": long.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out cap.TakenAt); break;
+                        case "depthSize": int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out cap.DepthSize); break;
+                        case "depthRange": float.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out cap.DepthRange); break;
                         case "sun": cap.Sun = P(v); break;
                         case "ambient": cap.Ambient = P(v); break;
                         case "fog": cap.Fog = P(v); break;
                         case "dayFraction": float.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out cap.DayFraction); break;
                         case "avgLum": float.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out cap.AverageLuminance); break;
                         case "avgColor": cap.AverageColor = P(v); break;
+                    }
+                }
+                if (cap.DepthSize >= 2)
+                {
+                    for (int i = 0; i < 6; i++)
+                    {
+                        string dp = DepthPath(dir, key, i);
+                        cap.Depth[i] = File.Exists(dp) ? DecodeDepth(File.ReadAllBytes(dp), cap.DepthSize, cap.DepthRange) : null;
                     }
                 }
                 return cap;
@@ -94,6 +111,34 @@ namespace LivePortals
                 cap.Destroy();
                 return null;
             }
+        }
+
+        /// <summary>Depth as a PNG: 16 bits per node in the red (high) and green (low) channels.</summary>
+        private static byte[] EncodeDepth(float[] depth, int n, float range)
+        {
+            var tex = new Texture2D(n, n, TextureFormat.RGBA32, false);
+            var px = new Color32[n * n];
+            for (int i = 0; i < px.Length; i++)
+            {
+                int v = Mathf.Clamp(Mathf.RoundToInt(depth[i] / range * 65535f), 0, 65535);
+                px[i] = new Color32((byte)(v >> 8), (byte)(v & 255), 0, 255);
+            }
+            tex.SetPixels32(px);
+            tex.Apply(false, false);
+            byte[] png = tex.EncodeToPNG();
+            UnityEngine.Object.Destroy(tex);
+            return png;
+        }
+
+        private static float[] DecodeDepth(byte[] png, int n, float range)
+        {
+            var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            if (!tex.LoadImage(png, false) || tex.width != n || tex.height != n) { UnityEngine.Object.Destroy(tex); return null; }
+            var px = tex.GetPixels32();
+            UnityEngine.Object.Destroy(tex);
+            var depth = new float[n * n];
+            for (int i = 0; i < depth.Length; i++) depth[i] = ((px[i].r << 8) | px[i].g) / 65535f * range;
+            return depth;
         }
 
         private static string C(Color c) => string.Join(",", new[]

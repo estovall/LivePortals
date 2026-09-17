@@ -16,7 +16,7 @@ Nothing is needed on the server and nothing changes for players without the mod.
 
 ## What you see
 
-* The window appears from about twice the portal's activation range (10 m in vanilla) and fades in fully by the
+* The window appears from about four times the portal's activation range (20 m in vanilla) and fades in fully by the
   activation range. Both faces of a portal are windows: the back of a portal looks out of the back of its partner.
 * The sky through the window is the sky now, and the ground and buildings are tinted to the current sun, ambient light
   and fog compared with when they were captured, so a noon capture darkens at night and warms at dusk. Shadows stay
@@ -28,8 +28,8 @@ Nothing is needed on the server and nothing changes for players without the mod.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `RangeMultiplier` / `FullMultiplier` | 2 / 1 | Where the window starts to appear and where it is fully visible, as multiples of the portal's activation range |
-| `WindowWidth` / `WindowHeight` / `WindowCenterHeight` / `WindowForwardOffset` | 1.7 / 2.3 / 1.35 / 0 | The pane's size and placement in the portal frame, metres |
+| `RangeMultiplier` / `FullMultiplier` | 4 / 1 | Where the window starts to appear and where it is fully visible, as multiples of the portal's activation range |
+| `WindowWidth` / `WindowHeight` / `WindowCenterHeight` / `WindowForwardOffset` | 1.7 / 2.3 / 0 / 0 | The pane size, and its offset up and forward from the portal ring centre, metres |
 | `CaptureResolution` | 512 | Pixels per captured cube face (six faces per portal) |
 | `WindowResolution` | 768 | Pixels the window is drawn at each frame |
 | `CaptureOnDeparture` / `CaptureOnArrival` | on / on | Which trips capture |
