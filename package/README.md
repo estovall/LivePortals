@@ -29,7 +29,7 @@ Nothing is needed on the server and nothing changes for players without the mod.
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `RangeMultiplier` / `FullMultiplier` | 4 / 1 | Where the window starts to appear and where it is fully visible, as multiples of the portal's activation range |
-| `WindowWidth` / `WindowHeight` / `WindowCenterHeight` / `WindowForwardOffset` | 1.7 / 2.3 / 0 / 0 | The pane size, and its offset up and forward from the portal ring centre, metres |
+| `PaneWidth` / `PaneHeight` / `RingCenterHeight` / `PaneForwardOffset` | 2.4 / 2.4 / 1.7 / 0 | The pane size, the ring centre height above the portal base, and a forward nudge, metres |
 | `CaptureResolution` | 512 | Pixels per captured cube face (six faces per portal) |
 | `WindowResolution` | 768 | Pixels the window is drawn at each frame |
 | `CaptureOnDeparture` / `CaptureOnArrival` | on / on | Which trips capture |

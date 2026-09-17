@@ -20,7 +20,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "LivePortals";
-        public const string VERSION = "0.2.0";
+        public const string VERSION = "0.3.0";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -34,10 +34,17 @@ namespace LivePortals
         internal static ConfigEntry<int> DepthGrid;
         internal static ConfigEntry<float> RangeMultiplier;
         internal static ConfigEntry<float> FullMultiplier;
-        internal static ConfigEntry<float> WindowWidth;
-        internal static ConfigEntry<float> WindowHeight;
-        internal static ConfigEntry<float> WindowCenterHeight;
-        internal static ConfigEntry<float> WindowForwardOffset;
+        internal static ConfigEntry<float> PaneWidth;
+        internal static ConfigEntry<float> PaneHeight;
+        internal static ConfigEntry<float> RingCenterHeight;
+        internal static ConfigEntry<float> PaneForwardOffset;
+        internal static ConfigEntry<bool> PaneRound;
+
+        /// <summary>World position of the portal ring's centre, where the pane sits and captures are taken from.</summary>
+        internal static Vector3 RingCenter(TeleportWorld tw)
+        {
+            return tw.transform.position + tw.transform.rotation * new Vector3(0f, RingCenterHeight.Value, PaneForwardOffset.Value);
+        }
         internal static ConfigEntry<bool> CaptureOnDeparture;
         internal static ConfigEntry<bool> CaptureOnArrival;
         internal static ConfigEntry<float> DepartureDelay;
@@ -81,13 +88,15 @@ namespace LivePortals
             FullMultiplier = Config.Bind("2. Window", "FullMultiplier", 1f,
                 new ConfigDescription("The window is fully visible from this many times the activation range inward.",
                     new AcceptableValueRange<float>(0.2f, 10f)));
-            WindowWidth = Config.Bind("2. Window", "WindowWidth", 1.7f,
+            PaneWidth = Config.Bind("2. Window", "PaneWidth", 2.4f,
                 new ConfigDescription("Width of the window pane in metres (the portal's opening).", new AcceptableValueRange<float>(0.5f, 5f)));
-            WindowHeight = Config.Bind("2. Window", "WindowHeight", 2.3f,
+            PaneHeight = Config.Bind("2. Window", "PaneHeight", 2.4f,
                 new ConfigDescription("Height of the window pane in metres.", new AcceptableValueRange<float>(0.5f, 5f)));
-            WindowCenterHeight = Config.Bind("2. Window", "WindowCenterHeight", 0f,
-                new ConfigDescription("Pane centre offset above the portal ring's centre (its proximity point), metres.", new AcceptableValueRange<float>(-2f, 2f)));
-            WindowForwardOffset = Config.Bind("2. Window", "WindowForwardOffset", 0f,
+            RingCenterHeight = Config.Bind("2. Window", "RingCenterHeight", 1.7f,
+                new ConfigDescription("Height of the ring's centre above the portal's base, metres. The pane and the captures are centred there.",
+                    new AcceptableValueRange<float>(0f, 4f)));
+            PaneRound = Config.Bind("2. Window", "PaneRound", true, "Round pane (the ring's shape) instead of a square.");
+            PaneForwardOffset = Config.Bind("2. Window", "PaneForwardOffset", 0f,
                 new ConfigDescription("Pane offset along the portal's forward axis, metres. Nudge if it fights the frame or the swirl.",
                     new AcceptableValueRange<float>(-1f, 1f)));
             CaptureOnDeparture = Config.Bind("3. Capture", "CaptureOnDeparture", true, "Capture the portal you leave through (feeds the window at its partner).");
@@ -211,7 +220,7 @@ namespace LivePortals
             var nview = portal.GetComponent<ZNetView>();
             if (nview == null || !nview.IsValid()) return;
             ZDOID id = nview.GetZDO().m_uid;
-            Vector3 pos = portal.transform.position + portal.transform.forward * (WindowForwardOffset.Value + 0.15f) + Vector3.up * WindowCenterHeight.Value;
+            Vector3 pos = RingCenter(portal) + portal.transform.forward * 0.15f;
             Quaternion rot = portal.transform.rotation;
             try
             {

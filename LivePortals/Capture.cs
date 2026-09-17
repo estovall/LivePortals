@@ -41,12 +41,14 @@ namespace LivePortals
             Quaternion.Euler(90f, 0f, 0f),
         };
 
+        private static Shader _depthShader;
+
         /// <summary>
-        /// Render six 90-degree faces from pos/rot with a copy of the main camera (geometry only, no sky camera).
+        /// Render six 90-degree faces from pos/rot with a copy of the main camera (geometry only, no sky layers).
         /// Per face: one render with the game's own fog for colour; two with fog off, cleared black and white, whose
-        /// differing pixels were never drawn (sky, alpha 0); two with linear black/white fog over DepthRange, whose
-        /// difference is the fog factor and therefore the view depth of every pixel, shader-independent.
-        /// The local player, this portal's swirl effect and every window are hidden meanwhile.
+        /// differing pixels were never drawn (sky, alpha 0); and one through the engine's own depth-normals shader
+        /// (the one the game camera uses every frame) for the view depth of every pixel.
+        /// The local player, this portal's swirl effect and lights, and every window are hidden meanwhile.
         /// </summary>
         internal static PortalCapture Take(Vector3 pos, Quaternion rot, TeleportWorld portal)
         {
@@ -56,6 +58,9 @@ namespace LivePortals
             int res = Plugin.CaptureResolution.Value;
             int dres = Mathf.Clamp(Plugin.DepthGrid.Value + 1, 9, res);
             float depthRange = Plugin.DepthRange.Value;
+            float depthFar = depthRange * 1.5f;
+            if (_depthShader == null) _depthShader = Shader.Find("Hidden/Internal-DepthNormalsTexture");
+            if (_depthShader == null) Plugin.Log.LogWarning("LivePortals: depth shader not found; captures will be flat.");
 
             var go = new GameObject("LivePortals_CaptureCamera");
             var cam = go.AddComponent<Camera>();
@@ -68,8 +73,10 @@ namespace LivePortals
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.depthTextureMode = DepthTextureMode.None;
             cam.nearClipPlane = 0.08f;
+            float colorFar = main.farClipPlane;
             int mask = main.cullingMask;
-            if (gc.m_skyCamera != null) mask &= ~(gc.m_skyCamera.cullingMask & ~main.cullingMask);
+            if (gc.m_skyCamera != null) mask &= ~gc.m_skyCamera.cullingMask; // the sky is drawn live, never baked
+            mask &= ~(1 << Plugin.FaceLayer);
             cam.cullingMask = mask;
             cam.ResetProjectionMatrix();
 
@@ -81,9 +88,9 @@ namespace LivePortals
             var texB = new Texture2D(res, res, TextureFormat.RGBA32, false);
 
             var hidden = new List<Renderer>();
-            HideForCapture(portal, hidden);
-            bool fogOn = RenderSettings.fog; var fogMode = RenderSettings.fogMode; var fogColor = RenderSettings.fogColor;
-            float fogStart = RenderSettings.fogStartDistance, fogEnd = RenderSettings.fogEndDistance, fogDensity = RenderSettings.fogDensity;
+            var hiddenLights = new List<Light>();
+            HideForCapture(portal, hidden, hiddenLights);
+            bool fogOn = RenderSettings.fog;
             var cap = new PortalCapture { DepthSize = dres, DepthRange = depthRange };
             try
             {
@@ -92,25 +99,32 @@ namespace LivePortals
                     cam.transform.SetPositionAndRotation(pos, rot * FaceRotations[i]);
 
                     // 1. Colour, with the game's fog as it is right now.
-                    RenderSettings.fog = fogOn; RenderSettings.fogMode = fogMode; RenderSettings.fogColor = fogColor;
-                    RenderSettings.fogStartDistance = fogStart; RenderSettings.fogEndDistance = fogEnd; RenderSettings.fogDensity = fogDensity;
-                    cam.backgroundColor = fogColor;
+                    RenderSettings.fog = fogOn;
+                    cam.farClipPlane = colorFar;
+                    cam.backgroundColor = RenderSettings.fogColor;
                     Render(cam, rtColor, texC, res);
 
-                    // 2. Sky mask: no fog, black then white clear.
+                    // 2. Sky mask: no fog, black then white clear; whatever differs was never drawn.
                     RenderSettings.fog = false;
                     cam.backgroundColor = Color.black; Render(cam, rtA, texA, res);
                     var skyA = texA.GetPixels32();
                     cam.backgroundColor = Color.white; Render(cam, rtB, texB, res);
                     var skyB = texB.GetPixels32();
 
-                    // 3. Depth: linear fog 0..DepthRange, black then white. B-A = 1-factor = z/DepthRange.
-                    RenderSettings.fog = true; RenderSettings.fogMode = FogMode.Linear;
-                    RenderSettings.fogStartDistance = 0f; RenderSettings.fogEndDistance = depthRange;
-                    RenderSettings.fogColor = Color.black; cam.backgroundColor = Color.black; Render(cam, rtA, texA, res);
-                    var fogA = texA.GetPixels32();
-                    RenderSettings.fogColor = Color.white; cam.backgroundColor = Color.white; Render(cam, rtB, texB, res);
-                    var fogB = texB.GetPixels32();
+                    // 3. Depth through the engine's depth-normals shader: view depth / far packed in the blue (coarse)
+                    //    and alpha (fine) channels. Clear to "beyond far" so undrawn pixels read as far.
+                    Color32[] dep = null;
+                    if (_depthShader != null)
+                    {
+                        cam.farClipPlane = depthFar;
+                        cam.backgroundColor = new Color(0.5f, 0.5f, 1f, 1f);
+                        cam.targetTexture = rtA;
+                        cam.RenderWithShader(_depthShader, "RenderType");
+                        cam.targetTexture = null;
+                        RenderTexture.active = rtA; texA.ReadPixels(new Rect(0, 0, res, res), 0, 0, false); RenderTexture.active = null;
+                        dep = texA.GetPixels32();
+                        cam.farClipPlane = colorFar;
+                    }
 
                     var col = texC.GetPixels32();
                     float exposure = Plugin.CaptureExposure.Value;
@@ -126,9 +140,12 @@ namespace LivePortals
                             depthFull[p] = depthRange;
                             continue;
                         }
-                        Color32 fa = fogA[p], fb = fogB[p];
-                        float dz = ((fb.r - fa.r) + (fb.g - fa.g) + (fb.b - fa.b)) / (3f * 255f);
-                        depthFull[p] = Mathf.Clamp01(dz) * depthRange;
+                        if (dep != null)
+                        {
+                            float d01 = dep[p].b / 255f + dep[p].a / (255f * 255f);
+                            depthFull[p] = Mathf.Min(depthRange, d01 * depthFar);
+                        }
+                        else depthFull[p] = depthRange;
 
                         Color32 c = col[p];
                         if (exposure != 1f)
@@ -157,9 +174,9 @@ namespace LivePortals
             }
             finally
             {
-                RenderSettings.fog = fogOn; RenderSettings.fogMode = fogMode; RenderSettings.fogColor = fogColor;
-                RenderSettings.fogStartDistance = fogStart; RenderSettings.fogEndDistance = fogEnd; RenderSettings.fogDensity = fogDensity;
+                RenderSettings.fog = fogOn;
                 foreach (var r in hidden) if (r != null) r.enabled = true;
+                foreach (var l in hiddenLights) if (l != null) l.enabled = true;
                 PortalWindow.SetAllVisible(true);
                 Object.Destroy(texA); Object.Destroy(texB); Object.Destroy(texC);
                 rtA.Release(); rtB.Release(); rtColor.Release();
@@ -214,13 +231,18 @@ namespace LivePortals
             return outp;
         }
 
-        private static void HideForCapture(TeleportWorld portal, List<Renderer> hidden)
+        private static void HideForCapture(TeleportWorld portal, List<Renderer> hidden, List<Light> hiddenLights)
         {
             var lp = Player.m_localPlayer;
             if (lp != null)
                 foreach (var r in lp.GetComponentsInChildren<Renderer>(false)) if (r.enabled) { r.enabled = false; hidden.Add(r); }
-            if (portal != null && portal.m_target_found != null)
-                foreach (var r in portal.m_target_found.GetComponentsInChildren<Renderer>(false)) if (r.enabled) { r.enabled = false; hidden.Add(r); }
+            if (portal != null)
+            {
+                // The swirl and the portal's own glow would tint everything from a camera standing in the ring.
+                if (portal.m_target_found != null)
+                    foreach (var r in portal.m_target_found.GetComponentsInChildren<Renderer>(false)) if (r.enabled) { r.enabled = false; hidden.Add(r); }
+                foreach (var l in portal.GetComponentsInChildren<Light>(false)) if (l.enabled) { l.enabled = false; hiddenLights.Add(l); }
+            }
             PortalWindow.SetAllVisible(false);
         }
     }

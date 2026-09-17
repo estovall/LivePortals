@@ -15,7 +15,7 @@ namespace LivePortals
     {
         private static readonly List<PortalWindow> All = new List<PortalWindow>();
         private static readonly Quaternion Flip = Quaternion.Euler(0f, 180f, 0f);
-        private static Mesh _quad;
+        private static Mesh _quad, _disc;
         private static bool _hiddenForCapture;
         private static bool _loggedMasks;
 
@@ -42,6 +42,7 @@ namespace LivePortals
 
         private bool _built, _visible, _suppressed;
         private int _frame;
+        private float _lastRequest = -10f;
 
         // ------------------------------------------------------------------
         internal static void NotifyCaptureUpdated(ZDOID id)
@@ -91,12 +92,17 @@ namespace LivePortals
             float full = act * Plugin.FullMultiplier.Value;
             if (dist > range + 3f) { Destroy(this); return; } // walked away; the scan re-adds us when we come back
             float alpha = range <= full ? (dist <= range ? 1f : 0f) : Mathf.Clamp01((range - dist) / (range - full));
+            alpha = 1f - (1f - alpha) * (1f - alpha); // ease in: half visible a third of the way in
             if (alpha <= 0.001f) { Hide(); return; }
 
             ZDOID target = _nview.GetZDO().GetConnectionZDOID(ZDOExtraData.ConnectionType.Portal);
             if (target == ZDOID.None) { Hide(); return; }
             ZDO tz = ZDOMan.instance.GetZDO(target);
-            if (tz == null) { ZDOMan.instance.RequestZDO(target); Hide(); return; }
+            if (tz == null)
+            {
+                if (Time.time - _lastRequest > 1f) { _lastRequest = Time.time; ZDOMan.instance.RequestZDO(target); Plugin.Dbg("waiting for partner ZDO " + Storage.Key(target)); }
+                Hide(); return;
+            }
             if (target != _targetId) { _targetId = target; ReleaseCapture(); _capCheckTimer = 0f; }
 
             _capCheckTimer -= Time.deltaTime;
@@ -118,13 +124,12 @@ namespace LivePortals
             if (_cap == null) { Hide(); return; }
             EnsureBuilt(gc);
 
-            // ---- Pane geometry: centred on the portal's proximity point (the ring), in the portal's frame ----
+            // ---- Pane geometry: the ring centre sits above the portal's base along its own up axis ----
             Quaternion rA = transform.rotation;
             Quaternion rB = tz.GetRotation();
             Vector3 up = rA * Vector3.up, n = rA * Vector3.forward, right = rA * Vector3.right;
-            float w = Plugin.WindowWidth.Value, h = Plugin.WindowHeight.Value;
-            Vector3 basePos = _tw.m_proximityRoot != null ? _tw.m_proximityRoot.position : transform.position;
-            Vector3 c = basePos + rA * new Vector3(0f, Plugin.WindowCenterHeight.Value, Plugin.WindowForwardOffset.Value);
+            float w = Plugin.PaneWidth.Value, h = Plugin.PaneHeight.Value;
+            Vector3 c = Plugin.RingCenter(_tw);
             _pane.transform.SetPositionAndRotation(c, rA);
             _pane.transform.localScale = new Vector3(w, h, 1f);
             if (!_loggedGeometry)
@@ -208,13 +213,15 @@ namespace LivePortals
             if (_built) return;
             _built = true;
             if (_quad == null) _quad = MakeQuad();
+            if (_disc == null) _disc = MakeDisc(64);
             int res = Plugin.WindowResolution.Value;
             _rt = new RenderTexture(res, res, 24, RenderTextureFormat.ARGB32) { name = "LivePortals_Window" };
             _rt.Create();
 
             // Pane over the opening: a free object in world space (not parented, so the prefab's scale cannot touch it).
+            // A disc by default, so the hole is the ring's shape; the texture still maps as if it were the full square.
             _pane = new GameObject("LivePortals_Pane");
-            _pane.AddComponent<MeshFilter>().sharedMesh = _quad;
+            _pane.AddComponent<MeshFilter>().sharedMesh = Plugin.PaneRound.Value ? _disc : _quad;
             _paneRenderer = _pane.AddComponent<MeshRenderer>();
             _paneMat = new Material(FindShader("Sprites/Default", "Unlit/Transparent", "Unlit/Texture"));
             _paneMat.mainTexture = _rt;
@@ -400,6 +407,34 @@ namespace LivePortals
             }
             Plugin.Log.LogWarning("LivePortals: none of the expected shaders found; windows will be blank.");
             return Shader.Find("Standard");
+        }
+
+        /// <summary>Unit disc in XY (diameter 1), same UV convention as the quad: u = x + 0.5, v = y + 0.5.</summary>
+        private static Mesh MakeDisc(int segments)
+        {
+            var m = new Mesh { name = "LivePortals_Disc" };
+            var verts = new Vector3[segments + 1];
+            var uvs = new Vector2[segments + 1];
+            var cols = new Color[segments + 1];
+            verts[0] = Vector3.zero; uvs[0] = new Vector2(0.5f, 0.5f); cols[0] = Color.white;
+            for (int i = 0; i < segments; i++)
+            {
+                float a = i / (float)segments * Mathf.PI * 2f;
+                float x = 0.5f * Mathf.Cos(a), y = 0.5f * Mathf.Sin(a);
+                verts[i + 1] = new Vector3(x, y, 0f);
+                uvs[i + 1] = new Vector2(x + 0.5f, y + 0.5f);
+                cols[i + 1] = Color.white;
+            }
+            var tris = new int[segments * 3];
+            for (int i = 0; i < segments; i++)
+            {
+                int a = i + 1, b = (i + 1) % segments + 1;
+                tris[i * 3] = 0; tris[i * 3 + 1] = b; tris[i * 3 + 2] = a;
+            }
+            m.vertices = verts; m.uv = uvs; m.colors = cols; m.triangles = tris;
+            m.RecalculateNormals();
+            m.RecalculateBounds();
+            return m;
         }
 
         /// <summary>Unit quad in XY, facing +Z, u=0 at -x, v=0 at -y.</summary>
