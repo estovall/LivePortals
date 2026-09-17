@@ -303,6 +303,9 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     (`Plugin.OnCameraPreCull`), and `RenderNow` runs there too (nested camera render, as the stock water/mirror
     scripts do); (b) the eye-move threshold was 5 mm per metre = five pixels, now 0.7 mm per metre for rank 0;
     (c) rank 0 redraws every frame at any distance, the rest at 30 Hz ordered by staleness. **Untested.**
+30. 0.9.6: Max could not share his Gale profile: 769 MB of captures sat in BepInEx/config/LivePortals. Captures now
+    live in `Application.persistentDataPath/LivePortals/<world>` (LocalLow/IronGate/Valheim) or `CaptureFolder`;
+    `Storage.Configure` (Awake) moves the old folder there once. Debug dumps go to `Storage.DebugDir()`.
 25. Not yet done: publish to Hexium (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

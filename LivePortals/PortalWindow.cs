@@ -363,7 +363,7 @@ namespace LivePortals
         {
             try
             {
-                string dir = Path.Combine(Path.Combine(BepInEx.Paths.ConfigPath, "LivePortals"), "debug");
+                string dir = Storage.DebugDir();
                 Directory.CreateDirectory(dir);
                 // Through an 8-bit sRGB texture, so the PNG holds display values. (0.8.7 and 0.8.8 read the half-float
                 // window texture directly and saved its linear values: dumps that looked dark and deep orange.)

@@ -9,7 +9,7 @@ using UnityEngine.Experimental.Rendering;
 namespace LivePortals
 {
     /// <summary>
-    /// Captures live on disk under BepInEx/config/LivePortals/&lt;world&gt;/ (read back by CaptureLoader): per capture point, six background PNGs,
+    /// Captures live on disk under &lt;game data&gt;/LivePortals/&lt;world&gt;/ (read back by CaptureLoader): per capture point, six background PNGs,
     /// up to six foreground PNGs and one file of depth grids, plus one text file per portal with the lighting and
     /// the point offsets. Keyed by the portal's network ID, so they survive restarts and are found again from
     /// whichever portal is paired with it.
@@ -18,11 +18,53 @@ namespace LivePortals
     {
         internal static string Key(ZDOID id) => id.UserID.ToString(CultureInfo.InvariantCulture) + "_" + id.ID.ToString(CultureInfo.InvariantCulture);
 
+        /// <summary>Where captures live: a LivePortals folder in the game's own data folder (next to worlds and characters), or wherever CaptureFolder points.</summary>
+        internal static string BaseDir { get; private set; }
+
+        /// <summary>
+        /// Main thread, at start-up. Up to 0.9.5 captures sat in BepInEx/config/LivePortals, which made a mod-manager
+        /// profile hundreds of megabytes to share; they are moved out of there once.
+        /// </summary>
+        internal static void Configure(string configured, string gameDataPath, string oldConfigPath)
+        {
+            BaseDir = !string.IsNullOrWhiteSpace(configured) ? configured.Trim() : Path.Combine(gameDataPath, "LivePortals");
+            try
+            {
+                string old = Path.Combine(oldConfigPath, "LivePortals");
+                if (!Directory.Exists(old) || Path.GetFullPath(old).TrimEnd('\\', '/').Equals(Path.GetFullPath(BaseDir).TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase)) return;
+                Directory.CreateDirectory(BaseDir);
+                int moved = 0;
+                foreach (var sub in Directory.GetDirectories(old))
+                {
+                    string dst = Path.Combine(BaseDir, Path.GetFileName(sub));
+                    if (!Directory.Exists(dst)) { Directory.Move(sub, dst); moved++; continue; }
+                    foreach (var f in Directory.GetFiles(sub))
+                    {
+                        string to = Path.Combine(dst, Path.GetFileName(f));
+                        if (File.Exists(to)) File.Delete(f); else File.Move(f, to);
+                        moved++;
+                    }
+                    if (Directory.GetFileSystemEntries(sub).Length == 0) Directory.Delete(sub);
+                }
+                foreach (var f in Directory.GetFiles(old)) File.Delete(f);
+                if (Directory.GetFileSystemEntries(old).Length == 0) Directory.Delete(old);
+                Plugin.Log.LogInfo($"LivePortals: moved the captures out of the config folder to {BaseDir} ({moved} folders or files), so a shared profile no longer carries them.");
+            }
+            catch (Exception e) { Plugin.Log.LogWarning("LivePortals: could not move old captures out of the config folder: " + e.Message); }
+        }
+
         internal static string Dir()
         {
             string world = ZNet.instance != null ? ZNet.instance.GetWorldName() : "unknown";
             foreach (char c in Path.GetInvalidFileNameChars()) world = world.Replace(c, '_');
-            string dir = Path.Combine(Path.Combine(Paths.ConfigPath, "LivePortals"), world);
+            string dir = Path.Combine(BaseDir ?? Path.Combine(Paths.ConfigPath, "LivePortals"), world);
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+
+        internal static string DebugDir()
+        {
+            string dir = Path.Combine(BaseDir ?? Path.Combine(Paths.ConfigPath, "LivePortals"), "debug");
             Directory.CreateDirectory(dir);
             return dir;
         }

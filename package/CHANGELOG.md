@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.6
+
+- Captures moved out of the mod-manager profile. They now live in the game's own data folder (`AppData\LocalLow\IronGate\Valheim\LivePortals\<world>`), next to your worlds and characters, or wherever the new `CaptureFolder` setting points. Existing captures are moved there at the first start. A shared Gale or r2modman profile no longer carries hundreds of megabytes of pictures.
+
 ## 0.9.5
 
 - The window no longer trails the view. It was posed in Update, before the game moves its camera (that happens in LateUpdate), so it always showed the previous frame's eye. It is now posed and redrawn just before the game camera renders, from that frame's final eye position.

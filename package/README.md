@@ -44,11 +44,12 @@ Nothing is needed on the server and nothing changes for players without the mod.
 | `PortalLight` / `PortalLightRange` | 1 / 8 m | The spill light; 0 turns it off |
 | `MaxWindows` / `MaxRendersPerFrame` | 8 / 2 | Most windows kept loaded; most windows redrawn in one frame (the nearest first) |
 | `SecondaryViewpointRange` | 12 m | Closer than this a window uses all its viewpoints and shows the far side's grass |
+| `CaptureFolder` | (game data folder) | Where captures are stored |
 | `CaptureFacesPerFrame` / `AsyncReadback` | 2 / on | How a capture is spread over frames; reading the GPU back without waiting for it |
 | `RenderEveryNFrames` | 1 | Redraw windows every N frames |
 | `PerfLog` | off | Log what the windows cost every 10 s |
 
-Captures live in `BepInEx\config\LivePortals\<world>\`: per portal a text file, and per capture point six background PNGs, up to six foreground PNGs and a file of depth grids. Delete them to reset.
+Captures live in the game's own data folder, `%USERPROFILE%\AppData\LocalLow\IronGate\Valheim\LivePortals\<world>\` (or wherever `CaptureFolder` points): per portal a text file, and per capture point six background PNGs, up to six foreground PNGs and a file of depth grids. Delete them to reset. They are outside the mod-manager profile on purpose: a busy world's captures run to hundreds of megabytes, and a shared profile should not carry them. Captures from versions before 0.9.6 are moved there at the first start.
 
 ## Known limits
 

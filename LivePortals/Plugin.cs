@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "LivePortals";
-        public const string VERSION = "0.9.5";
+        public const string VERSION = "0.9.6";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -58,6 +58,7 @@ namespace LivePortals
         internal static ConfigEntry<float> DepartureDelay;
         internal static ConfigEntry<float> ArrivalDelay;
         internal static ConfigEntry<int> CaptureFacesPerFrame;
+        internal static ConfigEntry<string> CaptureFolder;
         internal static ConfigEntry<bool> AsyncReadback;
         internal static ConfigEntry<bool> LiveSky;
         internal static ConfigEntry<float> ToneMatch;
@@ -173,6 +174,8 @@ namespace LivePortals
             ArrivalDelay = Config.Bind("3. Capture", "ArrivalDelay", 0.15f,
                 new ConfigDescription("Seconds after arrival before the capture, to let the area finish appearing while the screen is still dark.",
                     new AcceptableValueRange<float>(0f, 2f)));
+            CaptureFolder = Config.Bind("3. Capture", "CaptureFolder", "",
+                "Where captures are stored. Empty = a LivePortals folder in the game's own data folder (next to your worlds and characters), outside any mod-manager profile, so sharing a profile does not carry hundreds of megabytes of pictures.");
             CaptureFacesPerFrame = Config.Bind("3. Capture", "CaptureFacesPerFrame", 2,
                 new ConfigDescription("Cube faces rendered per frame during a capture (four renders each). Fewer = smoother frames, more frames for the capture, and things that move can differ between faces.",
                     new AcceptableValueRange<int>(1, 24)));
@@ -214,6 +217,7 @@ namespace LivePortals
             DebugLog = Config.Bind("5. Performance", "DebugLog", false, "Verbose logging of captures and windows.");
 
             _harmony = new Harmony(GUID);
+            Storage.Configure(CaptureFolder.Value, Application.persistentDataPath, Paths.ConfigPath);
             _harmony.PatchAll(typeof(Patches));
             Camera.onPreCull += OnCameraPreCull;
             // Portals register themselves as they appear, so no scan of every object in the scene is needed.
