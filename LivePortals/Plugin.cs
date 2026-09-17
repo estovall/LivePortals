@@ -21,8 +21,8 @@ namespace LivePortals
     public class Plugin : BaseUnityPlugin
     {
         public const string GUID = "com.maxst.liveportals";
-        public const string NAME = "LivePortals";
-        public const string VERSION = "0.9.6";
+        public const string NAME = "Immersive Portals";
+        public const string VERSION = "0.9.7";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;

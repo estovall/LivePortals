@@ -306,7 +306,13 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
 30. 0.9.6: Max could not share his Gale profile: 769 MB of captures sat in BepInEx/config/LivePortals. Captures now
     live in `Application.persistentDataPath/LivePortals/<world>` (LocalLow/IronGate/Valheim) or `CaptureFolder`;
     `Storage.Configure` (Awake) moves the old folder there once. Debug dumps go to `Storage.DebugDir()`.
-25. Not yet done: publish to Hexium (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
+31. 0.9.7 published on Hexium as Max/Immersive_Portals (https://valheim.hexium.gg/mods/Max/Immersive_Portals, zip at
+    https://cdn.hexium.gg/upload/1300/0.9.7.zip): `publish-mod.ps1 -Zip dist\Immersive_Portals-0.9.7.zip -Categories
+    Visuals,'Open Source','Valheim 1.0'` (categories came back empty, as with SailTrim). Package name has the
+    underscore because Hexium allows no spaces; plugin NAME is "Immersive Portals", GUID/DLL/config/repo keep
+    LivePortals. Zip = package\* + LivePortals.dll at the root. Later versions: bump manifest + VERSION, changelog,
+    build, zip, publish (Hexium rejects duplicate versions; new versions of existing packages can take hours to list).
+25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 
 ## Environment on a new PC

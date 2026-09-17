@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.7
+
+- Published on Hexium as **Immersive Portals** (the plugin file, config and GitHub repository keep the LivePortals name). Rewritten description: cosmetic, client-side, and how the window works without loading the far side.
+
 ## 0.9.6
 
 - Captures moved out of the mod-manager profile. They now live in the game's own data folder (`AppData\LocalLow\IronGate\Valheim\LivePortals\<world>`), next to your worlds and characters, or wherever the new `CaptureFolder` setting points. Existing captures are moved there at the first start. A shared Gale or r2modman profile no longer carries hundreds of megabytes of pictures.
