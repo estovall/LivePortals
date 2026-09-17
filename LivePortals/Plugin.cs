@@ -20,7 +20,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "LivePortals";
-        public const string VERSION = "0.3.1";
+        public const string VERSION = "0.3.2";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -47,10 +47,19 @@ namespace LivePortals
         /// </summary>
         internal static Vector3 RingCenter(TeleportWorld tw)
         {
-            Vector3 basePos = tw.m_target_found != null
-                ? tw.m_target_found.transform.position + tw.transform.rotation * new Vector3(0f, RingCenterOffset.Value, PaneForwardOffset.Value)
-                : tw.transform.position + tw.transform.rotation * new Vector3(0f, RingCenterHeight.Value + RingCenterOffset.Value, PaneForwardOffset.Value);
-            return basePos;
+            // The swirl effect's root sits at the portal's base, so it is no help; the model's bounds centre is at
+            // ring height on the vanilla portal (1.64 m). RingCenterHeight > 0 overrides that.
+            float h = RingCenterHeight.Value;
+            if (h <= 0f)
+            {
+                h = 1.64f;
+                if (tw.m_model != null)
+                {
+                    float fromBounds = Vector3.Dot(tw.m_model.bounds.center - tw.transform.position, tw.transform.up);
+                    if (fromBounds > 0.5f && fromBounds < 4f) h = fromBounds;
+                }
+            }
+            return tw.transform.position + tw.transform.rotation * new Vector3(0f, h + RingCenterOffset.Value, PaneForwardOffset.Value);
         }
         internal static ConfigEntry<bool> CaptureOnDeparture;
         internal static ConfigEntry<bool> CaptureOnArrival;
@@ -86,7 +95,7 @@ namespace LivePortals
             DepthRange = Config.Bind("1. General", "DepthRange", 120f,
                 new ConfigDescription("Metres of depth captured per pixel; anything farther (and the sky) sits at this distance. Larger = flatter far parallax, less stretch at edges.",
                     new AcceptableValueRange<float>(20f, 500f)));
-            DepthGrid = Config.Bind("1. General", "DepthGrid", 96,
+            DepthGrid = Config.Bind("1. General", "DepthGrid", 64,
                 new ConfigDescription("Vertices per edge of each displaced capture face. Higher = crisper silhouettes, more triangles.",
                     new AcceptableValueRange<int>(16, 256)));
             RangeMultiplier = Config.Bind("2. Window", "RangeMultiplier", 4f,
@@ -99,11 +108,11 @@ namespace LivePortals
                 new ConfigDescription("Width of the window pane in metres (the portal's opening).", new AcceptableValueRange<float>(0.5f, 5f)));
             PaneHeight = Config.Bind("2. Window", "PaneHeight", 2.4f,
                 new ConfigDescription("Height of the window pane in metres.", new AcceptableValueRange<float>(0.5f, 5f)));
-            RingCenterHeight = Config.Bind("2. Window", "RingCenterHeight", 1.7f,
-                new ConfigDescription("Fallback height of the ring's centre above the portal's base, metres, for portals without the vanilla swirl effect.",
+            RingCenterHeight = Config.Bind("2. Window", "RingCenterHeight", 0f,
+                new ConfigDescription("Height of the ring's centre above the portal's base, metres. 0 = take it from the portal model (1.64 m on the vanilla portal).",
                     new AcceptableValueRange<float>(0f, 4f)));
             RingCenterOffset = Config.Bind("2. Window", "RingCenterOffset", 0f,
-                new ConfigDescription("Vertical nudge of the pane and capture point from the swirl's position, metres.",
+                new ConfigDescription("Vertical nudge of the pane and capture point, metres.",
                     new AcceptableValueRange<float>(-1f, 1f)));
             PaneRound = Config.Bind("2. Window", "PaneRound", true, "Round pane (the ring's shape) instead of a square.");
             PaneForwardOffset = Config.Bind("2. Window", "PaneForwardOffset", 0f,

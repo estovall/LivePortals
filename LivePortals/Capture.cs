@@ -41,14 +41,12 @@ namespace LivePortals
             Quaternion.Euler(90f, 0f, 0f),
         };
 
-        private static Shader _depthShader;
-
         /// <summary>
         /// Render six 90-degree faces from pos/rot with a copy of the main camera (geometry only, no sky layers).
         /// Per face: one render with the game's own fog for colour; two with fog off, cleared black and white, whose
-        /// differing pixels were never drawn (sky, alpha 0); and one through the engine's own depth-normals shader
-        /// (the one the game camera uses every frame) for the view depth of every pixel.
-        /// The local player, this portal's swirl effect and lights, and every window are hidden meanwhile.
+        /// differing pixels were never drawn (sky, alpha 0); then a physics ray per relief vertex for depth.
+        /// The local player (renderers and colliders), this portal's swirl effect and lights, and every window are
+        /// hidden meanwhile.
         /// </summary>
         internal static PortalCapture Take(Vector3 pos, Quaternion rot, TeleportWorld portal)
         {
@@ -58,10 +56,6 @@ namespace LivePortals
             int res = Plugin.CaptureResolution.Value;
             int dres = Mathf.Clamp(Plugin.DepthGrid.Value + 1, 9, res);
             float depthRange = Plugin.DepthRange.Value;
-            float depthFar = depthRange * 1.5f;
-            if (_depthShader == null) _depthShader = Shader.Find("Hidden/Internal-DepthNormalsTexture");
-            if (_depthShader == null) Plugin.Log.LogWarning("LivePortals: depth shader not found; captures will be flat.");
-
             var go = new GameObject("LivePortals_CaptureCamera");
             var cam = go.AddComponent<Camera>();
             cam.CopyFrom(main);
@@ -89,7 +83,8 @@ namespace LivePortals
 
             var hidden = new List<Renderer>();
             var hiddenLights = new List<Light>();
-            HideForCapture(portal, hidden, hiddenLights);
+            var hiddenColliders = new List<Collider>();
+            HideForCapture(portal, hidden, hiddenLights, hiddenColliders);
             bool fogOn = RenderSettings.fog;
             var cap = new PortalCapture { DepthSize = dres, DepthRange = depthRange };
             try
@@ -111,25 +106,10 @@ namespace LivePortals
                     cam.backgroundColor = Color.white; Render(cam, rtB, texB, res);
                     var skyB = texB.GetPixels32();
 
-                    // 3. Depth through the engine's depth-normals shader: view depth / far packed in the blue (coarse)
-                    //    and alpha (fine) channels. Clear to "beyond far" so undrawn pixels read as far.
-                    Color32[] dep = null;
-                    if (_depthShader != null)
-                    {
-                        cam.farClipPlane = depthFar;
-                        cam.backgroundColor = new Color(0.5f, 0.5f, 1f, 1f);
-                        cam.targetTexture = rtA;
-                        cam.RenderWithShader(_depthShader, "RenderType");
-                        cam.targetTexture = null;
-                        RenderTexture.active = rtA; texA.ReadPixels(new Rect(0, 0, res, res), 0, 0, false); RenderTexture.active = null;
-                        dep = texA.GetPixels32();
-                        cam.farClipPlane = colorFar;
-                    }
-
                     var col = texC.GetPixels32();
                     float exposure = Plugin.CaptureExposure.Value;
                     long lumSum = 0, rSum = 0, gSum = 0, bSum = 0; int count = 0;
-                    var depthFull = new float[res * res];
+                    var sky = new bool[res * res];
                     for (int p = 0; p < col.Length; p++)
                     {
                         Color32 a = skyA[p], b = skyB[p];
@@ -137,15 +117,9 @@ namespace LivePortals
                         if (diff > 60)
                         {
                             col[p] = new Color32(0, 0, 0, 0); // never drawn: sky
-                            depthFull[p] = depthRange;
+                            sky[p] = true;
                             continue;
                         }
-                        if (dep != null)
-                        {
-                            float d01 = dep[p].b / 255f + dep[p].a / (255f * 255f);
-                            depthFull[p] = Mathf.Min(depthRange, d01 * depthFar);
-                        }
-                        else depthFull[p] = depthRange;
 
                         Color32 c = col[p];
                         if (exposure != 1f)
@@ -164,7 +138,10 @@ namespace LivePortals
                     face.SetPixels32(col);
                     face.Apply(true, false);
                     cap.Faces[i] = face;
-                    cap.Depth[i] = Downsample(depthFull, res, dres);
+                    // 3. Depth: one ray per relief vertex against the world's colliders (terrain, pieces, trees,
+                    //    water, creatures). Shader-independent; sky pixels are not cast.
+                    cap.Depth[i] = RaycastDepth(pos, rot * FaceRotations[i], sky, res, dres, depthRange, out int cast, out float median);
+                    Plugin.Dbg($"face {i}: {cast} rays, median depth {median:0.0} m");
                     if (i == 0 && count > 0)
                     {
                         cap.AverageLuminance = lumSum / (255f * count);
@@ -177,6 +154,7 @@ namespace LivePortals
                 RenderSettings.fog = fogOn;
                 foreach (var r in hidden) if (r != null) r.enabled = true;
                 foreach (var l in hiddenLights) if (l != null) l.enabled = true;
+                foreach (var c in hiddenColliders) if (c != null) c.enabled = true;
                 PortalWindow.SetAllVisible(true);
                 Object.Destroy(texA); Object.Destroy(texB); Object.Destroy(texC);
                 rtA.Release(); rtB.Release(); rtColor.Release();
@@ -187,6 +165,45 @@ namespace LivePortals
             Lighting.Sample(out cap.Sun, out cap.Ambient, out cap.Fog, out cap.DayFraction);
             cap.TakenAt = System.DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             return cap;
+        }
+
+        /// <summary>
+        /// View depth at each grid node of a 90-degree face, from a physics ray along that node's direction.
+        /// Solid colliders first; water is a trigger on its own layer, so it gets a second ray and the nearer wins.
+        /// Nodes whose pixel is sky (or that hit nothing within range) sit at range.
+        /// </summary>
+        private static float[] RaycastDepth(Vector3 origin, Quaternion faceRot, bool[] sky, int res, int n, float range, out int cast, out float median)
+        {
+            var depth = new float[n * n];
+            int solidMask = ~((1 << Plugin.FaceLayer) | (1 << 2)); // 2 = Ignore Raycast
+            int waterLayer = LayerMask.NameToLayer("Water");
+            int waterMask = waterLayer >= 0 ? 1 << waterLayer : 0;
+            solidMask &= ~waterMask;
+            var hits = new List<float>(n * n);
+            cast = 0;
+            for (int y = 0; y < n; y++)
+            {
+                float v = y / (float)(n - 1);
+                int py = Mathf.RoundToInt(v * (res - 1));
+                for (int x = 0; x < n; x++)
+                {
+                    float u = x / (float)(n - 1);
+                    int px = Mathf.RoundToInt(u * (res - 1));
+                    if (sky[py * res + px]) { depth[y * n + x] = range; continue; }
+                    Vector3 local = new Vector3((u - 0.5f) * 2f, (v - 0.5f) * 2f, 1f);
+                    float len = local.magnitude;
+                    Vector3 dir = faceRot * (local / len);
+                    float best = range * len; // ray distance that corresponds to view depth = range
+                    cast++;
+                    if (Physics.Raycast(origin, dir, out RaycastHit hit, best, solidMask, QueryTriggerInteraction.Ignore)) best = hit.distance;
+                    if (waterMask != 0 && Physics.Raycast(origin, dir, out RaycastHit wh, best, waterMask, QueryTriggerInteraction.Collide)) best = wh.distance;
+                    float z = Mathf.Min(range, best / len);
+                    depth[y * n + x] = z;
+                    if (z < range) hits.Add(z);
+                }
+            }
+            if (hits.Count > 0) { hits.Sort(); median = hits[hits.Count / 2]; } else median = range;
+            return depth;
         }
 
         private static void Render(Camera cam, RenderTexture rt, Texture2D into, int res)
@@ -231,11 +248,14 @@ namespace LivePortals
             return outp;
         }
 
-        private static void HideForCapture(TeleportWorld portal, List<Renderer> hidden, List<Light> hiddenLights)
+        private static void HideForCapture(TeleportWorld portal, List<Renderer> hidden, List<Light> hiddenLights, List<Collider> hiddenColliders)
         {
             var lp = Player.m_localPlayer;
             if (lp != null)
+            {
                 foreach (var r in lp.GetComponentsInChildren<Renderer>(false)) if (r.enabled) { r.enabled = false; hidden.Add(r); }
+                foreach (var c in lp.GetComponentsInChildren<Collider>(false)) if (c.enabled) { c.enabled = false; hiddenColliders.Add(c); }
+            }
             if (portal != null)
             {
                 // The swirl and the portal's own glow would tint everything from a camera standing in the ring.
