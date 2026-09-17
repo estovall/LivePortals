@@ -25,11 +25,13 @@ namespace LivePortals
             public readonly List<Renderer> Renderers = new List<Renderer>(); // what the capture really saw
             public readonly List<Renderer> Under = new List<Renderer>();     // skirts, drawn first
             public readonly List<Material> Materials = new List<Material>();
-            public readonly List<Mesh> Meshes = new List<Mesh>();
             public readonly List<Texture> Textures = new List<Texture>(); // blurred copies, ours to destroy
         }
 
         internal static readonly List<PortalWindow> All = new List<PortalWindow>();
+        /// <summary>Metres beyond the visible range at which a window exists and loads its capture (see Plugin's scan).</summary>
+        internal const float PreloadMargin = 15f;
+        private CaptureLoader _loader;
         private static readonly Quaternion Flip = Quaternion.Euler(0f, 180f, 0f);
         private static Mesh _quad, _disc;
         private static bool _hiddenForCapture;
@@ -122,10 +124,9 @@ namespace LivePortals
             float act = Mathf.Max(0.5f, _tw.m_activationRange);
             float range = act * Plugin.RangeMultiplier.Value;
             float full = act * Plugin.FullMultiplier.Value;
-            if (dist > range + 3f) { Destroy(this); return; } // walked away; the scan re-adds us when we come back
+            if (dist > range + 3f + PreloadMargin) { Destroy(this); return; } // walked away; the scan re-adds us when we come back
             float alpha = range <= full ? (dist <= range ? 1f : 0f) : Mathf.Clamp01((range - dist) / (range - full));
             alpha = 1f - (1f - alpha) * (1f - alpha); // ease in: half visible a third of the way in
-            if (alpha <= 0.001f) { Hide(); return; }
 
             bool glass = Plugin.GlassTest.Value;
             ZDOID target = glass ? _nview.GetZDO().m_uid : _nview.GetZDO().GetConnectionZDOID(ZDOExtraData.ConnectionType.Portal);
@@ -151,30 +152,41 @@ namespace LivePortals
                     {
                         EnsureBuilt(gc); // first: it decides (WindowMaterial) how the capture has to be loaded
                         bool wantAll = dist <= Plugin.SecondaryViewpointRange.Value + 6f;
-                        _set = Storage.Load(target, !WindowMaterial.DepthWorks, wantAll ? int.MaxValue : 1);
-                        _loadedPoints = _set != null ? _set.Captures.Count : 0;
-                        if (_set != null && _set.Captures.Count > 0) { BuildReliefs(); Plugin.Dbg("window at " + Storage.Key(_nview.GetZDO().m_uid) + " shows capture " + Storage.Key(target) + " (" + _set.Captures.Count + " points)"); }
-                        else { _set?.Destroy(); _set = null; }
+                        _loader = CaptureLoader.Start(target, !WindowMaterial.DepthWorks, 0, wantAll ? int.MaxValue : 1);
                     }
+                }
+            }
+            if (_loader != null)
+            {
+                _loader.Step(); // a few textures and meshes per frame, off a worker thread's decoding
+                if (_loader.Done)
+                {
+                    var got = _loader.Result;
+                    int from = _loader.FromPoint;
+                    _loader = null;
+                    if (got != null && got.Captures.Count > 0)
+                    {
+                        if (_set == null || from == 0) { DestroyReliefs(); _set?.Destroy(); _set = got; }
+                        else _set.Append(got);
+                        _loadedPoints = _set.Captures.Count;
+                        BuildReliefs();
+                        Plugin.Dbg("window at " + Storage.Key(_nview.GetZDO().m_uid) + " shows capture " + Storage.Key(target) + " (" + _set.Captures.Count + " of " + _set.AvailablePoints + " points)");
+                    }
+                    else got?.Destroy();
                 }
             }
             // Memory: a far window keeps only its primary viewpoint (a third of the textures); the others load when
             // you come within reach of them and go again when you leave, with a gap so it does not flap.
             _reloadTimer -= Time.deltaTime;
-            if (_set != null && _reloadTimer <= 0f)
+            if (_set != null && _loader == null && _reloadTimer <= 0f)
             {
                 _reloadTimer = 2f;
                 float reach = Plugin.SecondaryViewpointRange.Value;
                 bool wantAll = dist <= reach + 6f, wantOne = dist > reach + 14f;
-                if ((wantAll && _loadedPoints < _set.AvailablePoints) || (wantOne && _loadedPoints > 1))
-                {
-                    ReleaseCapture();
-                    _set = Storage.Load(target, !WindowMaterial.DepthWorks, wantAll ? int.MaxValue : 1);
-                    _loadedPoints = _set != null ? _set.Captures.Count : 0;
-                    if (_set != null && _set.Captures.Count > 0) BuildReliefs(); else { _set?.Destroy(); _set = null; }
-                }
+                if (wantAll && _loadedPoints < _set.AvailablePoints) _loader = CaptureLoader.Start(target, !WindowMaterial.DepthWorks, _loadedPoints, int.MaxValue);
+                else if (wantOne && _loadedPoints > 1) { _set.Trim(1); _loadedPoints = 1; BuildReliefs(); }
             }
-            if (_set == null) { Hide(); return; }
+            if (alpha <= 0.001f || _set == null) { Hide(); return; }
             EnsureBuilt(gc);
 
             // ---- Pane geometry: the ring centre sits above the portal's base along its own up axis ----
@@ -552,7 +564,7 @@ namespace LivePortals
                     f.transform.localRotation = Capture.FaceRotations[i];
                     // The background sheet is drawn twice: the pixels the capture saw where they are, and the
                     // whole sheet, filled-in pixels included, a little farther out (see Layers.FilledAlpha).
-                    Mesh back = ReliefMesh.Background(cap.Grids[i], cap.Grid);
+                    Mesh back = cap.Back[i];
                     // Draw order, should depth testing ever fail again: later viewpoints first, the primary last; within
                     // a viewpoint the guesses, then what it saw, then its foreground.
                     int order = (_set.Captures.Count - 1 - k) * 3;
@@ -567,15 +579,15 @@ namespace LivePortals
                     // (0.8.6 to 0.8.10 used a blurred copy here. It bled the colours of near things into the fill and
                     // showed its coarse texels as a grid; dark, blade-shaped fill around grass was the result.)
                     Texture soft = cap.Faces[i];
-                    AddLayer(rl, f.transform, "Skirt", ReliefMesh.Skirts(cap.Grids[i], cap.Grid), soft, true, Layers.CutoffAll, 0);
+                    AddLayer(rl, f.transform, "Skirt", cap.Skirt[i], soft, true, Layers.CutoffAll, 0);
                     // The far shell, all around: whatever was at least ShellMinDepth away, by direction alone. It is
                     // what shows wherever no relief covers a view ray. (Near things are left out of it: by direction
                     // alone they would land in the wrong place, as copies against the sky.)
-                    if (k == 0) AddLayer(rl, f.transform, "Shell", ReliefMesh.GroundShell(cap.Grids[i], cap.Grid, cap.DepthRange * 1.01f, true), soft, true, Layers.CutoffAll, 0);
+                    if (k == 0) AddLayer(rl, f.transform, "Shell", cap.Shell[i], soft, true, Layers.CutoffAll, 0);
                     // Foreground from the primary viewpoint only. The others exist to fill in background the primary
                     // could not see; their own cut-outs of the same grass, leaves and posts, a few centimetres off,
                     // only turn thin things into a jumble of shards.
-                    if (cap.Fronts[i] != null && k == 0) AddLayer(rl, f.transform, "Front", ReliefMesh.Foreground(cap.Grids[i], cap.Grid), cap.Fronts[i], false, 0.5f, order + 2);
+                    if (cap.Fronts[i] != null && k == 0) AddLayer(rl, f.transform, "Front", cap.Front[i], cap.Fronts[i], false, 0.5f, order + 2);
                 }
                 _reliefs.Add(rl);
             }
@@ -617,7 +629,6 @@ namespace LivePortals
             mr.enabled = false;
             (under ? rl.Under : rl.Renderers).Add(mr);
             rl.Materials.Add(mat);
-            if (!rl.Meshes.Contains(mesh)) rl.Meshes.Add(mesh);
             return go.transform;
         }
 
@@ -626,7 +637,6 @@ namespace LivePortals
             foreach (var rl in _reliefs)
             {
                 foreach (var m in rl.Materials) Destroy(m);
-                foreach (var m in rl.Meshes) Destroy(m);
                 foreach (var t in rl.Textures) Destroy(t);
                 if (rl.Anchor != null) Destroy(rl.Anchor);
             }
@@ -635,6 +645,7 @@ namespace LivePortals
 
         private void ReleaseCapture()
         {
+            if (_loader != null) { _loader.Cancel(); _loader = null; }
             DestroyReliefs();
             if (_set != null) { _set.Destroy(); _set = null; }
         }

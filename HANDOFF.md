@@ -265,6 +265,16 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     primary viewpoint (`Storage.Load(..., maxPoints)`, reload with hysteresis at `SecondaryViewpointRange` +6/+14);
     `RangeMultiplier` default 4 (ConfigVersion 2 migrates a stored 8). **Untested**: Max is to report fps before/after
     at the hub and the PerfLog lines.
+27. 0.9.3, first-approach stutter (Max: "pretty hardcore stutter when walking up to a portal for the first time after
+    logging in"). Cause: `Storage.Load` decoded every face PNG with `LoadImage` (~30 ms each, up to 40 of them) and
+    `BuildReliefs` built ~100 meshes, all in one frame. Now `Loader.cs`: `CaptureLoader` reads, decodes (own managed
+    PNG decoder `Png`, checked against real captures with `LayerTest png <file>`), builds mip chains (`Mips`) and the
+    relief `Data` on a thread pool thread; `Step()` on the main thread creates textures (`LoadRawTextureData` of the
+    whole chain) and meshes within `FrameBudgetMs` (4) shared by all windows. `PortalCapture` owns its meshes now
+    (`Back/Skirt/Shell/Front`), `Relief` no longer destroys meshes. Windows exist `PreloadMargin` (15 m) beyond the
+    visible range so the load is done before the dissolve-in. Viewpoint upgrade loads only the missing points
+    (`CaptureSet.Append`), downgrade is `Trim(1)`. `GrassSet.Read` (any thread) + `Resolve()` (main). **Untested**
+    in game.
 25. Not yet done: publish to Hexium (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

@@ -9,7 +9,7 @@ using UnityEngine.Experimental.Rendering;
 namespace LivePortals
 {
     /// <summary>
-    /// Captures live on disk under BepInEx/config/LivePortals/&lt;world&gt;/: per capture point, six background PNGs,
+    /// Captures live on disk under BepInEx/config/LivePortals/&lt;world&gt;/ (read back by CaptureLoader): per capture point, six background PNGs,
     /// up to six foreground PNGs and one file of depth grids, plus one text file per portal with the lighting and
     /// the point offsets. Keyed by the portal's network ID, so they survive restarts and are found again from
     /// whichever portal is paired with it.
@@ -18,7 +18,7 @@ namespace LivePortals
     {
         internal static string Key(ZDOID id) => id.UserID.ToString(CultureInfo.InvariantCulture) + "_" + id.ID.ToString(CultureInfo.InvariantCulture);
 
-        private static string Dir()
+        internal static string Dir()
         {
             string world = ZNet.instance != null ? ZNet.instance.GetWorldName() : "unknown";
             foreach (char c in Path.GetInvalidFileNameChars()) world = world.Replace(c, '_');
@@ -27,11 +27,11 @@ namespace LivePortals
             return dir;
         }
 
-        private static string FacePath(string dir, string key, int p, int i) => Path.Combine(dir, key + "_p" + p + "_" + i + ".png");
-        private static string FrontPath(string dir, string key, int p, int i) => Path.Combine(dir, key + "_p" + p + "_f" + i + ".png");
-        private static string GridPath(string dir, string key, int p) => Path.Combine(dir, key + "_p" + p + ".bin");
-        private static string MetaPath(string dir, string key) => Path.Combine(dir, key + ".txt");
-        private static string GrassPath(string dir, string key) => Path.Combine(dir, key + "_grass.bin");
+        internal static string FacePath(string dir, string key, int p, int i) => Path.Combine(dir, key + "_p" + p + "_" + i + ".png");
+        internal static string FrontPath(string dir, string key, int p, int i) => Path.Combine(dir, key + "_p" + p + "_f" + i + ".png");
+        internal static string GridPath(string dir, string key, int p) => Path.Combine(dir, key + "_p" + p + ".bin");
+        internal static string MetaPath(string dir, string key) => Path.Combine(dir, key + ".txt");
+        internal static string GrassPath(string dir, string key) => Path.Combine(dir, key + "_grass.bin");
 
         internal static void SaveGrass(Job job, GrassSet grass)
         {
@@ -42,7 +42,7 @@ namespace LivePortals
 
         private const int GridMagic = 0x4C503038; // "LP08": adds the face tangent and a presence byte per face
         private const int GridMagic07 = 0x4C503037;
-        private const string Format = "2";
+        internal const string Format = "2";
 
         /// <summary>A save in progress. Paths are resolved on the main thread; the writing can happen on any thread.</summary>
         internal class Job
@@ -124,78 +124,22 @@ namespace LivePortals
             return File.GetLastWriteTimeUtc(mp).Ticks;
         }
 
-        /// <summary>opaqueAlpha: for the blended fallback material, which would show filled-in texels (alpha 160) as see-through: every texel becomes fully opaque or fully clear.</summary>
-        internal static CaptureSet Load(ZDOID id, bool opaqueAlpha = false, int maxPoints = int.MaxValue)
+        /// <summary>The portal's meta file as key/value pairs, or null when there is none. Any thread.</summary>
+        internal static Dictionary<string, string> ReadMeta(string dir, string key)
         {
-            string dir = Dir(), key = Key(id);
             string mp = MetaPath(dir, key);
             if (!File.Exists(mp)) return null;
-            var set = new CaptureSet();
-            try
+            var meta = new Dictionary<string, string>();
+            foreach (var line in File.ReadAllLines(mp))
             {
-                var meta = new Dictionary<string, string>();
-                foreach (var line in File.ReadAllLines(mp))
-                {
-                    int eq = line.IndexOf('=');
-                    if (eq > 0) meta[line.Substring(0, eq)] = line.Substring(eq + 1);
-                }
-                if (!meta.TryGetValue("format", out var fmt) || fmt != Format) return null; // older layout: replaced by the next trip
-                if (!meta.TryGetValue("points", out var ps) || !int.TryParse(ps, NumberStyles.Integer, CultureInfo.InvariantCulture, out int points) || points < 1)
-                    return null;
-                if (meta.TryGetValue("takenAt", out var ta)) long.TryParse(ta, NumberStyles.Integer, CultureInfo.InvariantCulture, out set.TakenAt);
-                set.Grass = GrassSet.Load(GrassPath(dir, key));
-                set.AvailablePoints = points;
-                int load = Mathf.Min(points, Mathf.Max(1, maxPoints));
-                for (int p = 0; p < load; p++)
-                {
-                    var cap = new PortalCapture { TakenAt = set.TakenAt };
-                    set.Captures.Add(cap); // owned by the set from here on, so a failure below frees its textures
-                    set.Offsets.Add(Vector3.zero);
-                    if (!ReadGrids(GridPath(dir, key, p), cap)) { set.Destroy(); return null; }
-                    for (int i = 0; i < 6; i++)
-                    {
-                        if (cap.Grids[i] == null) continue;
-                        cap.Faces[i] = LoadPng(FacePath(dir, key, p, i), opaqueAlpha);
-                        if (cap.Faces[i] == null) { set.Destroy(); return null; }
-                        cap.Fronts[i] = LoadPng(FrontPath(dir, key, p, i), opaqueAlpha);
-                    }
-                    string pre = "p" + p + ".";
-                    if (meta.TryGetValue(pre + "sun", out var s)) cap.Sun = P(s);
-                    if (meta.TryGetValue(pre + "ambient", out var a)) cap.Ambient = P(a);
-                    if (meta.TryGetValue(pre + "fog", out var f)) cap.Fog = P(f);
-                    if (meta.TryGetValue(pre + "dayFraction", out var df)) float.TryParse(df, NumberStyles.Float, CultureInfo.InvariantCulture, out cap.DayFraction);
-                    if (meta.TryGetValue(pre + "avgLum", out var al)) float.TryParse(al, NumberStyles.Float, CultureInfo.InvariantCulture, out cap.AverageLuminance);
-                    if (meta.TryGetValue(pre + "avgColor", out var ac)) cap.AverageColor = P(ac);
-                    if (meta.TryGetValue(pre + "offset", out var os)) set.Offsets[p] = PV(os);
-                }
-                return set;
+                int eq = line.IndexOf('=');
+                if (eq > 0) meta[line.Substring(0, eq)] = line.Substring(eq + 1);
             }
-            catch (Exception e)
-            {
-                Plugin.Log.LogWarning("LivePortals: could not load capture " + key + ": " + e.Message);
-                set.Destroy();
-                return null;
-            }
+            return meta;
         }
 
-        private static Texture2D LoadPng(string path, bool opaqueAlpha)
-        {
-            if (!File.Exists(path)) return null;
-            var tex = new Texture2D(2, 2, TextureFormat.RGBA32, true);
-            if (!tex.LoadImage(File.ReadAllBytes(path), !opaqueAlpha)) { UnityEngine.Object.Destroy(tex); return null; }
-            if (opaqueAlpha)
-            {
-                var px = tex.GetPixels32();
-                for (int i = 0; i < px.Length; i++) px[i].a = px[i].a >= 100 ? (byte)255 : (byte)0;
-                tex.SetPixels32(px);
-                tex.Apply(true, true);
-            }
-            tex.wrapMode = TextureWrapMode.Clamp;
-            tex.filterMode = FilterMode.Bilinear;
-            return tex;
-        }
-
-        private static bool ReadGrids(string path, PortalCapture cap)
+        /// <summary>Any thread.</summary>
+        internal static bool ReadGrids(string path, PortalCapture cap)
         {
             if (!File.Exists(path)) return false;
             using (var r = new BinaryReader(File.OpenRead(path)))
@@ -258,7 +202,7 @@ namespace LivePortals
             v.x.ToString("R", CultureInfo.InvariantCulture), v.y.ToString("R", CultureInfo.InvariantCulture), v.z.ToString("R", CultureInfo.InvariantCulture)
         });
 
-        private static Color P(string s)
+        internal static Color P(string s)
         {
             var parts = s.Split(',');
             if (parts.Length < 3) return Color.white;
@@ -266,7 +210,7 @@ namespace LivePortals
             return new Color(r, g, b, a);
         }
 
-        private static Vector3 PV(string s)
+        internal static Vector3 PV(string s)
         {
             var parts = s.Split(',');
             if (parts.Length < 3) return Vector3.zero;

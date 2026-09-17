@@ -197,9 +197,32 @@ static class Program
         }
     }
 
+    /// <summary>Decode a stored PNG with the mod's own decoder and print a checksum plus the corners; also writes a PPM next to it for a look.</summary>
+    static void PngCheck(string path)
+    {
+        var file = File.ReadAllBytes(path);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var px = LivePortals.Png.Decode(file, out int w, out int h);
+        long decodeMs = sw.ElapsedMilliseconds;
+        if (px == null) { Console.WriteLine("FAILED " + path); return; }
+        sw.Restart();
+        var chain = LivePortals.Mips.Chain(px, w, h, out int levels);
+        long mipMs = sw.ElapsedMilliseconds;
+        ulong sum = 14695981039346656037UL;
+        for (int i = 0; i < px.Length; i++) { sum ^= px[i]; sum *= 1099511628211UL; }
+        Console.WriteLine($"{Path.GetFileName(path)}: {w}x{h} decode {decodeMs} ms, mips {levels} levels {chain.Length} bytes in {mipMs} ms, fnv {sum:x16}, bottom-left {px[0]},{px[1]},{px[2]},{px[3]} top-right {px[px.Length-4]},{px[px.Length-3]},{px[px.Length-2]},{px[px.Length-1]}");
+        using (var o = new BinaryWriter(File.Create(path + ".ppm")))
+        {
+            o.Write(System.Text.Encoding.ASCII.GetBytes("P6 " + w + " " + h + " 255" + (char)10));
+            for (int y = h - 1; y >= 0; y--)
+                for (int x = 0; x < w; x++) { int i = (y * w + x) * 4; o.Write(px[i]); o.Write(px[i + 1]); o.Write(px[i + 2]); }
+        }
+    }
+
     static void Main(string[] args)
     {
         if (args.Length >= 4 && args[0] == "capture") { DrawCapture(args[1], args[2], args[3]); return; }
+        if (args.Length >= 2 && args[0] == "png") { PngCheck(args[1]); return; }
         int res = 768, step = 6;
         float range = 120f;
         string outDir = args.Length > 0 ? args[0] : ".";

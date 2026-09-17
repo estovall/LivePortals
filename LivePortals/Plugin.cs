@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "LivePortals";
-        public const string VERSION = "0.9.2";
+        public const string VERSION = "0.9.3";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -223,7 +223,8 @@ namespace LivePortals
             foreach (var tw in UnityEngine.Object.FindObjectsByType<TeleportWorld>(FindObjectsSortMode.None))
             {
                 if (tw == null || !tw.isActiveAndEnabled) continue;
-                float range = tw.m_activationRange * RangeMultiplier.Value + 2f;
+                // The window exists a little farther out than it is seen, so its capture is loaded by the time it dissolves in.
+                float range = tw.m_activationRange * RangeMultiplier.Value + 2f + PortalWindow.PreloadMargin;
                 if (Vector3.Distance(p, tw.transform.position) > range) continue;
                 _scan.Add(tw);
             }

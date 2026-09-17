@@ -14,6 +14,8 @@ namespace LivePortals
     {
         public Texture2D[] Faces = new Texture2D[6];
         public Texture2D[] Fronts = new Texture2D[6];
+        /// <summary>Relief meshes per face, built by the loader from the grids; the reliefs share them and this owns them.</summary>
+        public Mesh[] Back = new Mesh[6], Skirt = new Mesh[6], Shell = new Mesh[6], Front = new Mesh[6];
         /// <summary>Nodes per edge of the depth grids; cells per edge is Grid - 1.</summary>
         public int Grid;
         public float DepthRange = 120f;
@@ -30,6 +32,13 @@ namespace LivePortals
         {
             for (int i = 0; i < Faces.Length; i++) if (Faces[i] != null) Object.Destroy(Faces[i]);
             for (int i = 0; i < Fronts.Length; i++) if (Fronts[i] != null) Object.Destroy(Fronts[i]);
+            for (int i = 0; i < 6; i++)
+            {
+                if (Back[i] != null) Object.Destroy(Back[i]);
+                if (Skirt[i] != null) Object.Destroy(Skirt[i]);
+                if (Shell[i] != null) Object.Destroy(Shell[i]);
+                if (Front[i] != null) Object.Destroy(Front[i]);
+            }
         }
     }
 
@@ -68,6 +77,22 @@ namespace LivePortals
             foreach (var c in Captures) c.Destroy();
             Captures.Clear();
             Offsets.Clear();
+        }
+
+        /// <summary>Take over the captures of a set loaded later (further viewpoints of the same capture).</summary>
+        public void Append(CaptureSet more)
+        {
+            Captures.AddRange(more.Captures);
+            Offsets.AddRange(more.Offsets);
+            more.Captures.Clear();
+            more.Offsets.Clear();
+        }
+
+        /// <summary>Drop all but the first count viewpoints.</summary>
+        public void Trim(int count)
+        {
+            for (int i = count; i < Captures.Count; i++) Captures[i].Destroy();
+            if (Captures.Count > count) { Captures.RemoveRange(count, Captures.Count - count); Offsets.RemoveRange(count, Offsets.Count - count); }
         }
 
         /// <summary>

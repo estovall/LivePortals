@@ -467,7 +467,7 @@ namespace LivePortals
         internal static Mesh Foreground(FaceGrids g, int n) => Make("LivePortals_Front", ForegroundData(g, n));
         internal static Mesh Skirts(FaceGrids g, int n) => Make("LivePortals_Skirt", SkirtData(g, n));
 
-        private static float _tan = 1f; // of the face being built (main thread only)
+        [System.ThreadStatic] private static float _tan; // of the face being built; every Data method sets it first (the loader builds on a worker thread)
 
         private static Vector3 At(int i, int j, int cells, float z)
         {
@@ -653,7 +653,8 @@ namespace LivePortals
             return data;
         }
 
-        private static Mesh Make(string name, Data data)
+        /// <summary>The engine object from the arrays. Main thread.</summary>
+        internal static Mesh Make(string name, Data data)
         {
             List<Vector3> verts = data.Verts; List<Vector2> uvs = data.Uvs; List<int> tris = data.Tris;
             if (verts.Count == 0) return null;

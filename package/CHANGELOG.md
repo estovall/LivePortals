@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.3
+
+- No more freeze on the first approach to a portal after logging in. The capture used to be read, decoded and turned into geometry in a single frame (up to forty PNGs and a hundred meshes). It is now decoded on a worker thread, uploaded a few pieces per frame within a 4 ms budget shared by all windows, and the loading starts 15 m before the window comes into view.
+- Extra viewpoints join without reloading the primary; leaving their range drops them without a reload.
+
 ## 0.9.2
 
 - Hubs: windows are no longer capped at a few. Up to `MaxWindows` (8) stay loaded, but only the nearest `MaxRendersPerFrame` (2) of those that need a new picture are redrawn in any frame; the rest keep their last picture until their turn. Far windows redraw only after a larger step of the eye and at a fraction of the resolution, and hold only their primary viewpoint until you come within reach.

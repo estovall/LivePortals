@@ -74,7 +74,8 @@ namespace LivePortals
             }
         }
 
-        internal static GrassSet Load(string path)
+        /// <summary>The stored tufts, budgeted, without their meshes yet: any thread. Resolve() on the main thread finds those.</summary>
+        internal static GrassSet Read(string path)
         {
             if (!File.Exists(path)) return null;
             try
@@ -137,7 +138,6 @@ namespace LivePortals
                         set.Groups.Add(part);
                     }
                 }
-                set.Resolve();
                 return set;
             }
             catch (System.Exception e)
@@ -148,7 +148,7 @@ namespace LivePortals
         }
 
         /// <summary>Find each group's mesh and material: they belong to the clutter prefabs the game keeps loaded.</summary>
-        private void Resolve()
+        internal void Resolve()
         {
             var clutter = ClutterSystem.instance;
             if (clutter == null) return;
