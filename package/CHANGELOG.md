@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0
+
+- Fixed: the window was mirrored left-right from the front of a portal (the sprite shader ignores texture scale, so the intended flip never happened). Parallax now moves the right way and text reads correctly. Found with the glass test.
+- Depth from physics rays (0.3.2), relief cut at depth jumps with a background-only backdrop behind it (0.3.4, 0.4.0), depth-writing relief material (0.4.0).
+- Pane defaults tuned in game: 2.7 x 2.8 m, ring centre 0.35 m below the model centre. Numpad tuning keys, numpad 0 manual capture, numpad . glass test.
+- Back of a portal shows the back of its partner (a physically consistent hole); `ArrivalViewBothSides` switches to the partner front from both faces.
+
 ## 0.3.0
 
 - Depth now comes from the engine's own depth-normals shader (the one the game camera uses), since the game's terrain and vegetation ignore stock fog and the fog trick read them as zero distance.

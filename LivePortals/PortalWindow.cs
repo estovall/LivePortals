@@ -135,7 +135,6 @@ namespace LivePortals
             float w = Plugin.PaneWidth.Value, h = Plugin.PaneHeight.Value;
             Vector3 c = Plugin.RingCenter(_tw);
             _pane.transform.SetPositionAndRotation(c, rA);
-            _pane.transform.localScale = new Vector3(w, h, 1f);
             if (!_loggedGeometry)
             {
                 _loggedGeometry = true;
@@ -174,8 +173,7 @@ namespace LivePortals
             Quaternion map = glass ? Quaternion.identity : rB * Flip * Quaternion.Inverse(rA);
             if (glass) rB = rA;
             _anchor.transform.SetPositionAndRotation(pe - map * (pe - c), rB);
-            float ds = Plugin.DepthScale.Value;
-            _anchor.transform.localScale = new Vector3(Plugin.MirrorRelief.Value ? -ds : ds, ds, ds); // scales the relief about the far ring centre
+            _anchor.transform.localScale = Vector3.one * Plugin.DepthScale.Value; // scales the relief about the far ring centre
             _cam.transform.SetPositionAndRotation(pe, map * Quaternion.LookRotation(vn, vu));
             _cam.projectionMatrix = Matrix4x4.Frustum(l, r, b, t, near, far);
             // The window camera sits on the (possibly mirrored) eye; the sky is drawn around it either way.
@@ -185,10 +183,10 @@ namespace LivePortals
                 Plugin.Log.LogInfo($"LivePortals glass: eye {pe} pane {c} n {n} front {realFront} d {d:0.00} l {l:0.000} r {r:0.000} b {b:0.000} t {t:0.000} camFwd {_cam.transform.forward} camRight {_cam.transform.right} anchor {_anchor.transform.position} mainFwd {gc.m_camera.transform.forward}");
             }
 
-            // The pane's u runs from pa: the mesh has u=0 at -x, which is the viewer's left only from behind.
-            bool flipU = front != Plugin.MirrorPane.Value;
-            _paneMat.mainTextureScale = new Vector2(flipU ? -1f : 1f, 1f);
-            _paneMat.mainTextureOffset = new Vector2(flipU ? 1f : 0f, 0f);
+            // The picture's u runs from pa, the viewer's left; the mesh has u=0 at -x, which is the viewer's left
+            // only from behind. From the front, mirror the mesh (a negative x scale: the disc is symmetric, only
+            // its UVs flip). Sprite shaders ignore texture scale/offset, so it has to be done on the geometry.
+            _pane.transform.localScale = new Vector3(front ? -w : w, h, 1f);
             _paneMat.color = new Color(1f, 1f, 1f, alpha);
 
             // ---- Lighting: tint the capture to now, and spill light onto the viewer's side ----
@@ -216,15 +214,11 @@ namespace LivePortals
                     if (_backRenderers[i] != null) _backRenderers[i].enabled = true;
                 }
                 _cam.Render();
-                // Glass test: leave the relief visible to the game camera as a ghost overlay on the real world.
-                if (!glass)
-                    for (int i = 0; i < 6; i++)
-                    {
-                        if (_faceRenderers[i] != null) _faceRenderers[i].enabled = false;
-                        if (_backRenderers[i] != null) _backRenderers[i].enabled = false;
-                    }
-                else
-                    for (int i = 0; i < 6; i++) if (_backRenderers[i] != null) _backRenderers[i].enabled = false;
+                for (int i = 0; i < 6; i++)
+                {
+                    if (_faceRenderers[i] != null) _faceRenderers[i].enabled = false;
+                    if (_backRenderers[i] != null) _backRenderers[i].enabled = false;
+                }
             }
         }
 

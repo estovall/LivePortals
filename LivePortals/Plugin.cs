@@ -20,7 +20,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "LivePortals";
-        public const string VERSION = "0.4.1";
+        public const string VERSION = "0.5.0";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -44,8 +44,6 @@ namespace LivePortals
         internal static ConfigEntry<bool> TuneKeys;
         internal static ConfigEntry<bool> GlassTest;
         internal static ConfigEntry<bool> ArrivalViewBothSides;
-        internal static ConfigEntry<bool> MirrorPane;
-        internal static ConfigEntry<bool> MirrorRelief;
 
         /// <summary>
         /// World position of the portal ring's centre, where the pane sits and captures are taken from. The
@@ -110,15 +108,15 @@ namespace LivePortals
             FullMultiplier = Config.Bind("2. Window", "FullMultiplier", 1f,
                 new ConfigDescription("The window is fully visible from this many times the activation range inward.",
                     new AcceptableValueRange<float>(0.2f, 10f)));
-            PaneWidth = Config.Bind("2. Window", "PaneWidth", 2.4f,
+            PaneWidth = Config.Bind("2. Window", "PaneWidth", 2.7f,
                 new ConfigDescription("Width of the window pane in metres (the portal's opening).", new AcceptableValueRange<float>(0.5f, 5f)));
-            PaneHeight = Config.Bind("2. Window", "PaneHeight", 2.4f,
+            PaneHeight = Config.Bind("2. Window", "PaneHeight", 2.8f,
                 new ConfigDescription("Height of the window pane in metres.", new AcceptableValueRange<float>(0.5f, 5f)));
             RingCenterHeight = Config.Bind("2. Window", "RingCenterHeight", 0f,
                 new ConfigDescription("Height of the ring's centre above the portal's base, metres. 0 = take it from the portal model (1.64 m on the vanilla portal).",
                     new AcceptableValueRange<float>(0f, 4f)));
-            RingCenterOffset = Config.Bind("2. Window", "RingCenterOffset", 0f,
-                new ConfigDescription("Vertical nudge of the pane and capture point, metres.",
+            RingCenterOffset = Config.Bind("2. Window", "RingCenterOffset", -0.35f,
+                new ConfigDescription("Vertical nudge of the pane and capture point from the model's centre, metres (the vanilla ring sits a little below it).",
                     new AcceptableValueRange<float>(-1f, 1f)));
             PaneRound = Config.Bind("2. Window", "PaneRound", true, "Round pane (the ring's shape) instead of a square.");
             DepthScale = Config.Bind("2. Window", "DepthScale", 1f,
@@ -128,8 +126,6 @@ namespace LivePortals
                 "Numpad tuning while in game: 8/2 ring height, 4/6 forward offset, 7/9 pane width, 1/3 pane height, +/- depth scale, 5 prints and saves, 0 captures the nearest portal now, . (period) toggles the glass test. Values are saved to this file.");
             GlassTest = Config.Bind("2. Window", "GlassTest", false,
                 "Diagnostic: each window shows its OWN portal's capture with no portal mapping, so the ring should look like a pane of glass onto the real surroundings. Capture with numpad 0 first.");
-            MirrorPane = Config.Bind("2. Window", "MirrorPane", false, "Diagnostic: mirror the window texture left-right (numpad /).");
-            MirrorRelief = Config.Bind("2. Window", "MirrorRelief", false, "Diagnostic: mirror the captured relief left-right (numpad *).");
             ArrivalViewBothSides = Config.Bind("2. Window", "ArrivalViewBothSides", false,
                 "The game always drops you at the partner's front, so show the partner's front view from both faces of a portal (mirrored from behind). Off = a physically consistent hole: back shows the partner's back.");
             PaneForwardOffset = Config.Bind("2. Window", "PaneForwardOffset", 0f,
@@ -243,17 +239,8 @@ namespace LivePortals
             {
                 GlassTest.Value = !GlassTest.Value;
                 Config.Save();
-                player.Message(MessageHud.MessageType.Center, "LivePortals: glass test " + (GlassTest.Value ? "ON (own capture, no mapping, relief drawn in the world)" : "OFF"));
+                player.Message(MessageHud.MessageType.Center, "LivePortals: glass test " + (GlassTest.Value ? "ON (own capture, no mapping)" : "OFF"));
                 Log.LogInfo("LivePortals: glass test " + GlassTest.Value);
-            }
-            if (ZInput.GetKeyDown(KeyCode.KeypadDivide, false) || ZInput.GetKeyDown(KeyCode.KeypadMultiply, false))
-            {
-                if (ZInput.GetKeyDown(KeyCode.KeypadDivide, false)) MirrorPane.Value = !MirrorPane.Value;
-                if (ZInput.GetKeyDown(KeyCode.KeypadMultiply, false)) MirrorRelief.Value = !MirrorRelief.Value;
-                Config.Save();
-                string m = $"mirror pane={MirrorPane.Value} relief={MirrorRelief.Value}";
-                player.Message(MessageHud.MessageType.Center, "LivePortals: " + m);
-                Log.LogInfo("LivePortals: " + m);
             }
             bool print = ZInput.GetKeyDown(KeyCode.Keypad5, false);
             if (!changed && !print) return;
