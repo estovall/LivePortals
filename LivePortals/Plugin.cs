@@ -20,7 +20,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "LivePortals";
-        public const string VERSION = "0.4.0";
+        public const string VERSION = "0.4.1";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;

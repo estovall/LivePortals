@@ -45,6 +45,7 @@ namespace LivePortals
         private bool _built, _visible, _suppressed;
         private int _frame;
         private float _lastRequest = -10f;
+        private float _lastGlassLog = -10f;
 
         // ------------------------------------------------------------------
         internal static void NotifyCaptureUpdated(ZDOID id)
@@ -178,6 +179,11 @@ namespace LivePortals
             _cam.transform.SetPositionAndRotation(pe, map * Quaternion.LookRotation(vn, vu));
             _cam.projectionMatrix = Matrix4x4.Frustum(l, r, b, t, near, far);
             // The window camera sits on the (possibly mirrored) eye; the sky is drawn around it either way.
+            if (glass && Time.time - _lastGlassLog > 1f)
+            {
+                _lastGlassLog = Time.time;
+                Plugin.Log.LogInfo($"LivePortals glass: eye {pe} pane {c} n {n} front {realFront} d {d:0.00} l {l:0.000} r {r:0.000} b {b:0.000} t {t:0.000} camFwd {_cam.transform.forward} camRight {_cam.transform.right} anchor {_anchor.transform.position} mainFwd {gc.m_camera.transform.forward}");
+            }
 
             // The pane's u runs from pa: the mesh has u=0 at -x, which is the viewer's left only from behind.
             bool flipU = front != Plugin.MirrorPane.Value;
@@ -326,6 +332,10 @@ namespace LivePortals
                 Plugin.Log.LogInfo($"LivePortals: main mask {gc.m_camera.cullingMask:X8}, sky mask {(sky != null ? sky.cullingMask.ToString("X8") : "none")}, sky-only {skyOnly:X8}, window mask {_cam.cullingMask:X8}, face layer {Plugin.FaceLayer}, sky clear {(sky != null ? sky.clearFlags.ToString() : "n/a")}");
             }
             _cam.enabled = false;
+            _cam.ResetWorldToCameraMatrix();
+            _cam.ResetProjectionMatrix();
+            _cam.ResetAspect();
+            _cam.usePhysicalProperties = false;
             _cam.depthTextureMode = DepthTextureMode.None;
             _cam.nearClipPlane = 0.05f;
             float need = Plugin.DepthRange.Value * 2f;
