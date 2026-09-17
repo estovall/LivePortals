@@ -1,13 +1,17 @@
 using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
 
 namespace LivePortals
 {
     /// <summary>
     /// The window on one portal. A pane over the opening shows a texture rendered every frame by a small camera
-    /// that looks at the partner portal's captures: for each capture point, six depth-displaced meshes around that
-    /// point, textured with the captured faces (transparent where they saw sky), a background-only backdrop behind
-    /// them, and the current sky drawn behind everything. The camera's frustum is fitted to the pane as seen from
+    /// that looks at the partner portal's captures: for each capture point and cube face, a background relief (one
+    /// continuous depth-displaced sheet, transparent where the capture saw sky, continuing underneath near things)
+    /// and a foreground relief in front of it (the near things, cut out per pixel by their texture). Underneath, as
+    /// a last resort for directions no capture point saw, skirts stretched across the depth edges; and the current
+    /// sky behind everything. The camera draws the sky and the skirts first, then clears depth only and draws
+    /// the reliefs over them. The camera's frustum is fitted to the pane as seen from
     /// your eye (off-axis projection), its near plane lies on the pane, and its orientation is your view direction
     /// mapped through the portal into the partner's frame, so the picture has real parallax from either side. The
     /// meshes are switched on only for the instant that camera renders, so no other camera sees them.
@@ -18,12 +22,11 @@ namespace LivePortals
         {
             public GameObject Anchor;
             public Vector3 Offset; // capture point offset in the partner's frame
-            public readonly MeshFilter[] Filters = new MeshFilter[6];
-            public readonly Renderer[] Faces = new Renderer[6];
-            public readonly Renderer[] Backs = new Renderer[6];
-            public readonly Material[] FaceMats = new Material[6];
-            public readonly Material[] BackMats = new Material[6];
-            public readonly Mesh[] Meshes = new Mesh[6];
+            public readonly List<Renderer> Renderers = new List<Renderer>(); // what the capture really saw
+            public readonly List<Renderer> Under = new List<Renderer>();     // skirts, drawn first
+            public readonly List<Material> Materials = new List<Material>();
+            public readonly List<Mesh> Meshes = new List<Mesh>();
+            public readonly List<Texture> Textures = new List<Texture>(); // blurred copies, ours to destroy
         }
 
         private static readonly List<PortalWindow> All = new List<PortalWindow>();
@@ -44,6 +47,7 @@ namespace LivePortals
         private GameObject _pane;
         private Renderer _paneRenderer;
         private Material _paneMat;
+        private bool _paneSolid;
         private readonly List<Relief> _reliefs = new List<Relief>();
         private Camera _cam;
         private RenderTexture _rt;
@@ -127,8 +131,9 @@ namespace LivePortals
                     _capTime = stored;
                     if (stored >= 0)
                     {
-                        _set = Storage.Load(target);
-                        if (_set != null && _set.Captures.Count > 0) { EnsureBuilt(gc); BuildReliefs(); Plugin.Dbg("window at " + Storage.Key(_nview.GetZDO().m_uid) + " shows capture " + Storage.Key(target) + " (" + _set.Captures.Count + " points)"); }
+                        EnsureBuilt(gc); // first: it decides (WindowMaterial) how the capture has to be loaded
+                        _set = Storage.Load(target, !WindowMaterial.DepthWorks);
+                        if (_set != null && _set.Captures.Count > 0) { BuildReliefs(); Plugin.Dbg("window at " + Storage.Key(_nview.GetZDO().m_uid) + " shows capture " + Storage.Key(target) + " (" + _set.Captures.Count + " points)"); }
                         else { _set?.Destroy(); _set = null; }
                     }
                 }
@@ -140,8 +145,9 @@ namespace LivePortals
             Quaternion rA = transform.rotation;
             Quaternion rB = tz.GetRotation();
             Vector3 up = rA * Vector3.up, n = rA * Vector3.forward, right = rA * Vector3.right;
-            float w = Plugin.PaneWidth.Value, h = Plugin.PaneHeight.Value;
-            Vector3 c = Plugin.RingCenter(_tw);
+            var shape = PortalShape.Of(_tw);
+            float w = shape.Width, h = shape.Height;
+            Vector3 c = shape.Centre;
             _pane.transform.SetPositionAndRotation(c, rA);
             if (!_loggedGeometry)
             {
@@ -182,13 +188,14 @@ namespace LivePortals
             Quaternion map = glass ? Quaternion.identity : rB * Flip * Quaternion.Inverse(rA);
             if (glass) rB = rA;
             Vector3 anchor0 = pe - map * (pe - c);
-            float ds = Plugin.DepthScale.Value;
+            const float ds = 1f; // the relief is metric; the DepthScale knob of the ray-depth days only ever made it wrong
             for (int k = 0; k < _reliefs.Count; k++)
             {
                 var rl = _reliefs[k];
                 // Secondary points sit a touch farther out so the primary wins where both saw the same surface.
-                float s = ds * (1f + 0.004f * k);
-                rl.Anchor.transform.SetPositionAndRotation(anchor0 + rB * (rl.Offset * ds), rB);
+                float s = ds * (1f + 0.01f * k);
+                // A relief's origin is its capture point, and those sit 0.15 m in front of the far ring's centre.
+                rl.Anchor.transform.SetPositionAndRotation(anchor0 + rB * ((rl.Offset + CaptureForward) * ds), rB);
                 rl.Anchor.transform.localScale = Vector3.one * s;
             }
             _cam.transform.SetPositionAndRotation(pe, map * Quaternion.LookRotation(vn, vu));
@@ -203,7 +210,8 @@ namespace LivePortals
             // only from behind. From the front, mirror the mesh (a negative x scale: the disc is symmetric, only
             // its UVs flip). Sprite shaders ignore texture scale/offset, so it has to be done on the geometry.
             _pane.transform.localScale = new Vector3(front ? -w : w, h, 1f);
-            _paneMat.color = new Color(1f, 1f, 1f, alpha);
+            if (_paneSolid) WindowMaterial.SetPaneVisible(_paneMat, alpha);
+            else _paneMat.color = new Color(1f, 1f, 1f, alpha);
 
             // ---- Lighting: tint the captures to now, and spill light onto the viewer's side ----
             _tintTimer -= Time.deltaTime;
@@ -213,11 +221,7 @@ namespace LivePortals
                 var primary = _set.Primary;
                 Color tint = Lighting.Tint(primary, Plugin.ToneMatch.Value);
                 foreach (var rl in _reliefs)
-                    for (int i = 0; i < 6; i++)
-                    {
-                        if (rl.FaceMats[i] != null && rl.FaceMats[i].HasProperty("_Color")) rl.FaceMats[i].color = tint;
-                        if (rl.BackMats[i] != null && rl.BackMats[i].HasProperty("_Color")) rl.BackMats[i].color = tint;
-                    }
+                    foreach (var m in rl.Materials) WindowMaterial.SetTint(m, tint);
                 UpdateLight(primary, c, realFront ? n : -n, tint, alpha);
             }
 
@@ -226,20 +230,89 @@ namespace LivePortals
             if (!_hiddenForCapture && (_frame++ % Mathf.Max(1, Plugin.RenderEveryNFrames.Value)) == 0)
             {
                 // The capture meshes exist only while this camera renders: no other camera ever sees them.
-                SetReliefsEnabled(true);
+                // Pass one: the sky, then the skirts. Pass two keeps that picture, clears depth, and draws the
+                // reliefs over it, so a skirt (which spans all the depth between two surfaces) never hides them.
+                bool dump = _dumped != DumpRequest;
+                // The far side's grass, as geometry, where the far ring's frame lands in front of the viewer.
+                _set.Grass?.Draw(_cam, Matrix4x4.TRS(anchor0, rB, Vector3.one));
+                SetReliefsEnabled(true, true);
                 _cam.Render();
-                SetReliefsEnabled(false);
+                SetReliefsEnabled(true, false);
+                if (dump) SaveWindow("under");
+                var clear = _cam.clearFlags;
+                int mask = _cam.cullingMask;
+                _cam.clearFlags = CameraClearFlags.Depth;
+                _cam.cullingMask = 1 << Plugin.FaceLayer;
+                SetReliefsEnabled(false, true);
+                // No scene fog on the reliefs: the captures carry the far side's own fog, and the unlit shader would
+                // add the viewer's on top (in the viewer's biome colour: a pink forest seen from the plains).
+                bool fog = RenderSettings.fog;
+                RenderSettings.fog = false;
+                _cam.Render();
+                RenderSettings.fog = fog;
+                SetReliefsEnabled(false, false);
+                _cam.clearFlags = clear;
+                _cam.cullingMask = mask;
+                if (dump)
+                {
+                    _dumped = DumpRequest;
+                    SaveWindow("final");
+                    // The eye in the primary relief's own frame: what tools/LayerTest needs (EYES=x,y,z) to redraw this view.
+                    Vector3 eyeLocal = Quaternion.Inverse(rB) * (pe - (anchor0 + rB * CaptureForward));
+                    Plugin.Log.LogInfo($"LivePortals dump: window {Storage.Key(_nview.GetZDO().m_uid)} shows {Storage.Key(target)} ({_reliefs.Count} viewpoints), glass {glass}, front {realFront}, EYES={eyeLocal.x:0.###},{eyeLocal.y:0.###},{eyeLocal.z:0.###} near {near:0.###} far {far:0} frustum l {l:0.####} r {r:0.####} b {b:0.####} t {t:0.####} hdr {_cam.allowHDR} path {_cam.actualRenderingPath} depthBits {_rt.depth} format {_rt.format} material {WindowMaterial.Summary} pane {(_paneSolid ? "solid" : "sprite")} tint {Lighting.Tint(_set.Primary, Plugin.ToneMatch.Value)}");
+                }
             }
         }
 
-        private void SetReliefsEnabled(bool on)
+        /// <summary>Numpad 5 bumps this; every visible window then saves what it drew (after the under pass, and the final picture) and logs where the eye was.</summary>
+        internal static int DumpRequest;
+        private int _dumped;
+        internal static readonly Vector3 CaptureForward = new Vector3(0f, 0f, 0.15f);
+
+        private void SaveWindow(string tag)
+        {
+            try
+            {
+                string dir = Path.Combine(Path.Combine(BepInEx.Paths.ConfigPath, "LivePortals"), "debug");
+                Directory.CreateDirectory(dir);
+                // Through an 8-bit sRGB texture, so the PNG holds display values. (0.8.7 and 0.8.8 read the half-float
+                // window texture directly and saved its linear values: dumps that looked dark and deep orange.)
+                var srgb = RenderTexture.GetTemporary(_rt.width, _rt.height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+                Graphics.Blit(_rt, srgb);
+                var tex = new Texture2D(_rt.width, _rt.height, TextureFormat.RGBA32, false);
+                var prev = RenderTexture.active;
+                RenderTexture.active = srgb;
+                tex.ReadPixels(new Rect(0, 0, _rt.width, _rt.height), 0, 0, false);
+                RenderTexture.active = prev;
+                RenderTexture.ReleaseTemporary(srgb);
+                File.WriteAllBytes(Path.Combine(dir, $"{System.DateTime.Now:HHmmss}_{Storage.Key(_nview.GetZDO().m_uid)}_{tag}.png"), tex.EncodeToPNG());
+                Destroy(tex);
+                if (tag == "final" && _rt.format == RenderTextureFormat.ARGBHalf)
+                {
+                    // The pane blends by this texture's alpha, and a float texture does not clamp it.
+                    var raw = new Texture2D(_rt.width, _rt.height, TextureFormat.RGBAHalf, false, true);
+                    RenderTexture.active = _rt;
+                    raw.ReadPixels(new Rect(0, 0, _rt.width, _rt.height), 0, 0, false);
+                    RenderTexture.active = prev;
+                    var px = raw.GetPixels();
+                    float aMin = float.MaxValue, aMax = float.MinValue, cMax = 0f;
+                    for (int i = 0; i < px.Length; i += 5)
+                    {
+                        if (px[i].a < aMin) aMin = px[i].a;
+                        if (px[i].a > aMax) aMax = px[i].a;
+                        cMax = Mathf.Max(cMax, px[i].maxColorComponent);
+                    }
+                    Plugin.Log.LogInfo($"LivePortals dump: window texture alpha {aMin:0.###}..{aMax:0.###}, brightest channel {cMax:0.###}");
+                    Destroy(raw);
+                }
+            }
+            catch (System.Exception e) { Plugin.Log.LogWarning("LivePortals: window dump failed: " + e.Message); }
+        }
+
+        private void SetReliefsEnabled(bool under, bool on)
         {
             foreach (var rl in _reliefs)
-                for (int i = 0; i < 6; i++)
-                {
-                    if (rl.Faces[i] != null) rl.Faces[i].enabled = on;
-                    if (rl.Backs[i] != null) rl.Backs[i].enabled = on;
-                }
+                foreach (var r in under ? rl.Under : rl.Renderers) r.enabled = on;
         }
 
         private void UpdateLight(PortalCapture cap, Vector3 c, Vector3 outward, Color tint, float alpha)
@@ -271,7 +344,12 @@ namespace LivePortals
             if (_quad == null) _quad = MakeQuad();
             if (_disc == null) _disc = MakeDisc(64);
             int res = Plugin.WindowResolution.Value;
-            _rt = new RenderTexture(res, res, 24, RenderTextureFormat.ARGB32) { name = "LivePortals_Window" };
+            // 8-bit sRGB. 0.8.7 to 0.8.9 used a half-float texture to keep the sky's over-bright blue from clipping
+            // (the sky through a window looks pinker than the real one); in game the whole window then came out dark
+            // and deep orange, as if its linear values were shown unconverted. Why is not understood; this format is
+            // the one Max confirmed looks right (0.8.5). The pinker sky is still open.
+            var format = RenderTextureFormat.ARGB32;
+            _rt = new RenderTexture(res, res, 24, format) { name = "LivePortals_Window" };
             _rt.Create();
 
             // Pane over the opening: a free object in world space (not parented, so the prefab's scale cannot touch it).
@@ -279,9 +357,6 @@ namespace LivePortals
             _pane = new GameObject("LivePortals_Pane");
             _pane.AddComponent<MeshFilter>().sharedMesh = Plugin.PaneRound.Value ? _disc : _quad;
             _paneRenderer = _pane.AddComponent<MeshRenderer>();
-            _paneMat = new Material(FindShader("Sprites/Default", "Unlit/Transparent", "Unlit/Texture"));
-            _paneMat.mainTexture = _rt;
-            _paneRenderer.sharedMaterial = _paneMat;
             _paneRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             _paneRenderer.receiveShadows = false;
             _paneRenderer.enabled = false;
@@ -319,13 +394,27 @@ namespace LivePortals
             _cam.ResetProjectionMatrix();
             _cam.ResetAspect();
             _cam.usePhysicalProperties = false;
+            _cam.allowHDR = false;  // straight into the window texture, so the second pass finds the first one's picture there
+            _cam.allowMSAA = false;
             _cam.depthTextureMode = DepthTextureMode.None;
             _cam.nearClipPlane = 0.05f;
-            float need = Plugin.DepthRange.Value * 2f;
+            float need = Plugin.DepthRange.Value * 3f; // the ground shell sits at 1.5 ranges, its corners farther
             if (_cam.farClipPlane < need) _cam.farClipPlane = need;
             _cam.targetTexture = _rt;
             _cam.rect = new Rect(0f, 0f, 1f, 1f);
             _cam.orthographic = false;
+            WindowMaterial.EnsureTested(_cam);
+            WindowMaterial.ApplyTo(_cam);
+
+            // The pane's material, now that the shader test has run: solid and depth-writing if it can be.
+            _paneMat = WindowMaterial.MakePane(_rt);
+            _paneSolid = _paneMat != null;
+            if (!_paneSolid)
+            {
+                _paneMat = new Material(FindShader("Sprites/Default", "Unlit/Transparent", "Unlit/Texture"));
+                _paneMat.mainTexture = _rt;
+            }
+            _paneRenderer.sharedMaterial = _paneMat;
 
             var lightGo = new GameObject("LivePortals_Light");
             _light = lightGo.AddComponent<Light>();
@@ -335,125 +424,106 @@ namespace LivePortals
             _light.enabled = false;
         }
 
-        /// <summary>One relief per capture point: six displaced face meshes plus six flat backdrops behind them.</summary>
+        /// <summary>One relief per capture point: per face a background sheet, the foreground in front of it, and the skirts.</summary>
         private void BuildReliefs()
         {
             DestroyReliefs();
             if (_set == null) return;
             for (int k = 0; k < _set.Captures.Count; k++)
             {
+                // Without a depth-testing material only draw order separates near from far, and overlapping
+                // viewpoints cannot be sorted: the primary one alone, background then foreground.
+                if (k > 0 && !WindowMaterial.DepthWorks) break;
                 var cap = _set.Captures[k];
                 var rl = new Relief { Offset = _set.Offsets[k] };
                 rl.Anchor = new GameObject("LivePortals_Relief" + k);
                 for (int i = 0; i < 6; i++)
                 {
+                    if (cap.Grids[i] == null || cap.Faces[i] == null) continue;
                     var f = new GameObject("Face" + i);
-                    f.layer = Plugin.FaceLayer;
                     f.transform.SetParent(rl.Anchor.transform, false);
                     f.transform.localRotation = Capture.FaceRotations[i];
-                    rl.Filters[i] = f.AddComponent<MeshFilter>();
-                    rl.Meshes[i] = BuildFaceMesh(cap.Depth[i], cap.DepthSize, cap.DepthRange);
-                    rl.Filters[i].sharedMesh = rl.Meshes[i];
-                    var mr = f.AddComponent<MeshRenderer>();
-                    rl.FaceMats[i] = MakeCutoutMaterial();
-                    rl.FaceMats[i].mainTexture = cap.Faces[i];
-                    mr.sharedMaterial = rl.FaceMats[i];
-                    mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-                    mr.receiveShadows = false;
-                    mr.enabled = false;
-                    rl.Faces[i] = mr;
-
-                    var bk = new GameObject("Back" + i);
-                    bk.layer = Plugin.FaceLayer;
-                    bk.transform.SetParent(f.transform, false);
-                    bk.AddComponent<MeshFilter>().sharedMesh = FlatFace(cap.DepthRange * 1.02f);
-                    var br = bk.AddComponent<MeshRenderer>();
-                    rl.BackMats[i] = MakeCutoutMaterial();
-                    rl.BackMats[i].mainTexture = cap.Backdrops[i] != null ? cap.Backdrops[i] : cap.Faces[i];
-                    br.sharedMaterial = rl.BackMats[i];
-                    br.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-                    br.receiveShadows = false;
-                    br.enabled = false;
-                    rl.Backs[i] = br;
+                    // The background sheet is drawn twice: the pixels the capture saw where they are, and the
+                    // whole sheet, filled-in pixels included, a little farther out (see Layers.FilledAlpha).
+                    Mesh back = ReliefMesh.Background(cap.Grids[i], cap.Grid);
+                    // Draw order, should depth testing ever fail again: later viewpoints first, the primary last; within
+                    // a viewpoint the guesses, then what it saw, then its foreground.
+                    int order = (_set.Captures.Count - 1 - k) * 3;
+                    AddLayer(rl, f.transform, "Back", back, cap.Faces[i], false, Layers.CutoffCaptured, order + 1);
+                    if (WindowMaterial.DepthWorks)
+                    {
+                        var filled = AddLayer(rl, f.transform, "BackFilled", back, cap.Faces[i], false, Layers.CutoffAll, order);
+                        if (filled != null) filled.localScale = Vector3.one * Layers.FilledPush;
+                    }
+                    // The guesses (skirts, shell) show a blurred copy of the picture: one row of texels stretched
+                    // over a skirt reads as a fan of streaks, the same colours blurred read as haze.
+                    // (0.8.6 to 0.8.10 used a blurred copy here. It bled the colours of near things into the fill and
+                    // showed its coarse texels as a grid; dark, blade-shaped fill around grass was the result.)
+                    Texture soft = cap.Faces[i];
+                    AddLayer(rl, f.transform, "Skirt", ReliefMesh.Skirts(cap.Grids[i], cap.Grid), soft, true, Layers.CutoffAll, 0);
+                    // The far shell, all around: whatever was at least ShellMinDepth away, by direction alone. It is
+                    // what shows wherever no relief covers a view ray. (Near things are left out of it: by direction
+                    // alone they would land in the wrong place, as copies against the sky.)
+                    if (k == 0) AddLayer(rl, f.transform, "Shell", ReliefMesh.GroundShell(cap.Grids[i], cap.Grid, cap.DepthRange * 1.01f, true), soft, true, Layers.CutoffAll, 0);
+                    // Foreground from the primary viewpoint only. The others exist to fill in background the primary
+                    // could not see; their own cut-outs of the same grass, leaves and posts, a few centimetres off,
+                    // only turn thin things into a jumble of shards.
+                    if (cap.Fronts[i] != null && k == 0) AddLayer(rl, f.transform, "Front", ReliefMesh.Foreground(cap.Grids[i], cap.Grid), cap.Fronts[i], false, 0.5f, order + 2);
                 }
                 _reliefs.Add(rl);
             }
             _tintTimer = 0f;
         }
 
+        /// <summary>The texture's fourth mip level as a texture of its own (a GPU copy; the source need not be readable).</summary>
+        private static Texture Blurred(Texture2D tex, Relief rl)
+        {
+            const int mip = 4;
+            try
+            {
+                if (tex.mipmapCount <= mip) return tex;
+                int w = Mathf.Max(1, tex.width >> mip), h = Mathf.Max(1, tex.height >> mip);
+                var small = new Texture2D(w, h, tex.format, false) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
+                Graphics.CopyTexture(tex, 0, mip, small, 0, 0);
+                rl.Textures.Add(small);
+                return small;
+            }
+            catch (System.Exception e)
+            {
+                Plugin.Dbg("no blurred copy: " + e.Message);
+                return tex;
+            }
+        }
+
+        private static Transform AddLayer(Relief rl, Transform parent, string name, Mesh mesh, Texture tex, bool under, float cutoff, int order)
+        {
+            if (mesh == null) return null;
+            var go = new GameObject(name);
+            go.layer = Plugin.FaceLayer;
+            go.transform.SetParent(parent, false);
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var mr = go.AddComponent<MeshRenderer>();
+            var mat = WindowMaterial.Make(tex, cutoff, order);
+            mr.sharedMaterial = mat;
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            mr.receiveShadows = false;
+            mr.enabled = false;
+            (under ? rl.Under : rl.Renderers).Add(mr);
+            rl.Materials.Add(mat);
+            if (!rl.Meshes.Contains(mesh)) rl.Meshes.Add(mesh);
+            return go.transform;
+        }
+
         private void DestroyReliefs()
         {
             foreach (var rl in _reliefs)
             {
-                for (int i = 0; i < 6; i++)
-                {
-                    if (rl.FaceMats[i] != null) Destroy(rl.FaceMats[i]);
-                    if (rl.BackMats[i] != null) Destroy(rl.BackMats[i]);
-                    if (rl.Meshes[i] != null) Destroy(rl.Meshes[i]);
-                }
+                foreach (var m in rl.Materials) Destroy(m);
+                foreach (var m in rl.Meshes) Destroy(m);
+                foreach (var t in rl.Textures) Destroy(t);
                 if (rl.Anchor != null) Destroy(rl.Anchor);
             }
             _reliefs.Clear();
-        }
-
-        /// <summary>
-        /// A grid over the 90-degree face, each vertex pushed out along its view ray to the captured view depth.
-        /// Direction for (u,v) is ((u-0.5)*2, (v-0.5)*2, 1) in the face's frame; times the view depth z that puts
-        /// the vertex exactly where the captured surface was. Sky vertices sit at DepthRange.
-        /// </summary>
-        private static Mesh BuildFaceMesh(float[] depth, int n, float range)
-        {
-            var m = new Mesh { name = "LivePortals_Face" };
-            if (depth == null || n < 2) return FlatFace(range);
-            var verts = new Vector3[n * n];
-            var uvs = new Vector2[n * n];
-            var cols = new Color32[n * n];
-            for (int y = 0; y < n; y++)
-            {
-                float v = y / (float)(n - 1);
-                for (int x = 0; x < n; x++)
-                {
-                    float u = x / (float)(n - 1);
-                    float z = Mathf.Clamp(depth[y * n + x], 0.2f, range);
-                    verts[y * n + x] = new Vector3((u - 0.5f) * 2f * z, (v - 0.5f) * 2f * z, z);
-                    uvs[y * n + x] = new Vector2(u, v);
-                    cols[y * n + x] = new Color32(255, 255, 255, 255);
-                }
-            }
-            // Only connect vertices that belong to the same surface: a triangle spanning a depth jump (a rock
-            // edge against the ground behind it, anything against the sky) would be a streak toward the horizon.
-            // Holes left at silhouettes show the backdrop, or another capture point's surface, instead.
-            var tris = new List<int>((n - 1) * (n - 1) * 6);
-            for (int y = 0; y < n - 1; y++)
-                for (int x = 0; x < n - 1; x++)
-                {
-                    int i0 = y * n + x, i1 = i0 + 1, i2 = i0 + n, i3 = i2 + 1;
-                    float z0 = verts[i0].z, z1 = verts[i1].z, z2 = verts[i2].z, z3 = verts[i3].z;
-                    if (Continuous(z0, z2, z1)) { tris.Add(i0); tris.Add(i2); tris.Add(i1); }
-                    if (Continuous(z1, z2, z3)) { tris.Add(i1); tris.Add(i2); tris.Add(i3); }
-                }
-            m.indexFormat = n * n > 65000 ? UnityEngine.Rendering.IndexFormat.UInt32 : UnityEngine.Rendering.IndexFormat.UInt16;
-            m.vertices = verts; m.uv = uvs; m.colors32 = cols; m.triangles = tris.ToArray();
-            m.RecalculateBounds();
-            return m;
-        }
-
-        private static bool Continuous(float a, float b, float c)
-        {
-            float lo = Mathf.Min(a, Mathf.Min(b, c)), hi = Mathf.Max(a, Mathf.Max(b, c));
-            return hi - lo < 0.6f || hi < lo * 1.35f;
-        }
-
-        private static Mesh FlatFace(float range)
-        {
-            var m = new Mesh { name = "LivePortals_FlatFace" };
-            float s = range * 1.004f;
-            m.vertices = new[] { new Vector3(-s, -s, range), new Vector3(s, -s, range), new Vector3(s, s, range), new Vector3(-s, s, range) };
-            m.uv = new[] { new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(1f, 1f), new Vector2(0f, 1f) };
-            m.colors = new[] { Color.white, Color.white, Color.white, Color.white };
-            m.triangles = new[] { 0, 2, 1, 0, 3, 2 };
-            m.RecalculateBounds();
-            return m;
         }
 
         private void ReleaseCapture()
@@ -486,30 +556,6 @@ namespace LivePortals
             _built = false;
         }
 
-        /// <summary>
-        /// Unlit, alpha-tested, depth-writing, double-sided, tintable: the particle standard shader in cutout mode.
-        /// Depth writes let near relief patches occlude far ones and the backdrop properly.
-        /// </summary>
-        private static Material MakeCutoutMaterial()
-        {
-            var s = Shader.Find("Particles/Standard Unlit");
-            if (s == null) return new Material(FindShader("Sprites/Default", "Unlit/Transparent", "Unlit/Texture"));
-            var m = new Material(s);
-            m.SetFloat("_Mode", 1f);
-            m.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.One);
-            m.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.Zero);
-            m.SetInt("_ZWrite", 1);
-            m.SetInt("_Cull", (int)UnityEngine.Rendering.CullMode.Off);
-            m.SetFloat("_Cutoff", 0.5f);
-            m.SetFloat("_ColorMode", 0f);
-            m.EnableKeyword("_ALPHATEST_ON");
-            m.DisableKeyword("_ALPHABLEND_ON");
-            m.DisableKeyword("_ALPHAPREMULTIPLY_ON");
-            m.DisableKeyword("_ALPHAMODULATE_ON");
-            m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.AlphaTest;
-            return m;
-        }
-
         private static Shader FindShader(params string[] names)
         {
             foreach (var n in names)
@@ -537,11 +583,12 @@ namespace LivePortals
                 uvs[i + 1] = new Vector2(x + 0.5f, y + 0.5f);
                 cols[i + 1] = Color.white;
             }
-            var tris = new int[segments * 3];
+            var tris = new int[segments * 6];
             for (int i = 0; i < segments; i++)
             {
                 int a = i + 1, b = (i + 1) % segments + 1;
-                tris[i * 3] = 0; tris[i * 3 + 1] = b; tris[i * 3 + 2] = a;
+                tris[i * 6] = 0; tris[i * 6 + 1] = b; tris[i * 6 + 2] = a;
+                tris[i * 6 + 3] = 0; tris[i * 6 + 4] = a; tris[i * 6 + 5] = b;
             }
             m.vertices = verts; m.uv = uvs; m.colors = cols; m.triangles = tris;
             m.RecalculateNormals();
@@ -556,7 +603,7 @@ namespace LivePortals
             m.vertices = new[] { new Vector3(-0.5f, -0.5f, 0f), new Vector3(0.5f, -0.5f, 0f), new Vector3(0.5f, 0.5f, 0f), new Vector3(-0.5f, 0.5f, 0f) };
             m.uv = new[] { new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(1f, 1f), new Vector2(0f, 1f) };
             m.colors = new[] { Color.white, Color.white, Color.white, Color.white };
-            m.triangles = new[] { 0, 2, 1, 0, 3, 2 };
+            m.triangles = new[] { 0, 2, 1, 0, 3, 2, 0, 1, 2, 0, 2, 3 };
             m.RecalculateNormals();
             m.RecalculateBounds();
             return m;

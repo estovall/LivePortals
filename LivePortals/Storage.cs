@@ -1,16 +1,18 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using BepInEx;
 using UnityEngine;
+using UnityEngine.Experimental.Rendering;
 
 namespace LivePortals
 {
     /// <summary>
-    /// Captures live on disk under BepInEx/config/LivePortals/&lt;world&gt;/: per capture point, six PNG faces, six
-    /// depth maps and six backdrops, plus one text file per portal with the lighting and the point offsets.
-    /// Keyed by the portal's network ID, so they survive restarts and are found again from whichever portal is
-    /// paired with it.
+    /// Captures live on disk under BepInEx/config/LivePortals/&lt;world&gt;/: per capture point, six background PNGs,
+    /// up to six foreground PNGs and one file of depth grids, plus one text file per portal with the lighting and
+    /// the point offsets. Keyed by the portal's network ID, so they survive restarts and are found again from
+    /// whichever portal is paired with it.
     /// </summary>
     internal static class Storage
     {
@@ -26,41 +28,89 @@ namespace LivePortals
         }
 
         private static string FacePath(string dir, string key, int p, int i) => Path.Combine(dir, key + "_p" + p + "_" + i + ".png");
-        private static string DepthPath(string dir, string key, int p, int i) => Path.Combine(dir, key + "_p" + p + "_d" + i + ".png");
-        private static string BackPath(string dir, string key, int p, int i) => Path.Combine(dir, key + "_p" + p + "_b" + i + ".png");
+        private static string FrontPath(string dir, string key, int p, int i) => Path.Combine(dir, key + "_p" + p + "_f" + i + ".png");
+        private static string GridPath(string dir, string key, int p) => Path.Combine(dir, key + "_p" + p + ".bin");
         private static string MetaPath(string dir, string key) => Path.Combine(dir, key + ".txt");
+        private static string GrassPath(string dir, string key) => Path.Combine(dir, key + "_grass.bin");
 
-        internal static void Save(ZDOID id, CaptureSet set)
+        internal static void SaveGrass(Job job, GrassSet grass)
         {
-            string dir = Dir(), key = Key(id);
-            // Remove any older files for this portal so a smaller set does not leave stale points behind.
-            foreach (var f in Directory.GetFiles(dir, key + "_*.png")) File.Delete(f);
-            var lines = new System.Collections.Generic.List<string>
+            string path = GrassPath(job.Dir, job.Key);
+            if (grass != null && grass.Groups.Count > 0) grass.Save(path);
+            else if (File.Exists(path)) File.Delete(path);
+        }
+
+        private const int GridMagic = 0x4C503038; // "LP08": adds the face tangent and a presence byte per face
+        private const int GridMagic07 = 0x4C503037;
+        private const string Format = "2";
+
+        /// <summary>A save in progress. Paths are resolved on the main thread; the writing can happen on any thread.</summary>
+        internal class Job
+        {
+            public string Dir, Key;
+            public readonly List<string> Lines = new List<string>();
+        }
+
+        internal static Job Begin(ZDOID id)
+        {
+            return new Job { Dir = Dir(), Key = Key(id) };
+        }
+
+        /// <summary>Remove this portal's stored capture. The meta file, which is what makes a set visible, goes first and is written back last.</summary>
+        internal static void Clear(Job job)
+        {
+            string mp = MetaPath(job.Dir, job.Key);
+            if (File.Exists(mp)) File.Delete(mp);
+            foreach (var f in Directory.GetFiles(job.Dir, job.Key + "_p*")) File.Delete(f);
+        }
+
+        /// <summary>Encodes from plain arrays (EncodeArrayToPNG is thread safe).</summary>
+        internal static void SaveFace(Job job, int p, int i, FaceLayers face, int res)
+        {
+            File.WriteAllBytes(FacePath(job.Dir, job.Key, p, i), ImageConversion.EncodeArrayToPNG(face.Back, GraphicsFormat.R8G8B8A8_SRGB, (uint)res, (uint)res));
+            if (face.Front != null)
+                File.WriteAllBytes(FrontPath(job.Dir, job.Key, p, i), ImageConversion.EncodeArrayToPNG(face.Front, GraphicsFormat.R8G8B8A8_SRGB, (uint)res, (uint)res));
+        }
+
+        internal static void SavePoint(Job job, int p, RawPoint pt, FaceGrids[] grids)
+        {
+            int n = pt.Res / pt.Step + 1;
+            using (var w = new BinaryWriter(File.Create(GridPath(job.Dir, job.Key, p))))
             {
-                "takenAt=" + set.TakenAt.ToString(CultureInfo.InvariantCulture),
-                "points=" + set.Captures.Count.ToString(CultureInfo.InvariantCulture),
-            };
-            for (int p = 0; p < set.Captures.Count; p++)
-            {
-                var cap = set.Captures[p];
+                w.Write(GridMagic);
+                w.Write(n);
+                w.Write(pt.DepthRange);
+                w.Write(pt.FaceTan);
                 for (int i = 0; i < 6; i++)
                 {
-                    File.WriteAllBytes(FacePath(dir, key, p, i), cap.Faces[i].EncodeToPNG());
-                    if (cap.Depth[i] != null) File.WriteAllBytes(DepthPath(dir, key, p, i), EncodeDepth(cap.Depth[i], cap.DepthSize, cap.DepthRange));
-                    if (cap.Backdrops[i] != null) File.WriteAllBytes(BackPath(dir, key, p, i), cap.Backdrops[i].EncodeToPNG());
+                    w.Write((byte)(grids[i] != null ? 1 : 0));
+                    if (grids[i] == null) continue;
+                    WriteDepths(w, grids[i].BgNode, pt.DepthRange);
+                    WriteDepths(w, grids[i].BgCell, pt.DepthRange);
+                    WriteDepths(w, grids[i].FgNode, pt.DepthRange);
+                    WriteDepths(w, grids[i].FgCell, pt.DepthRange);
                 }
-                Vector3 o = set.Offsets[p];
-                lines.Add($"p{p}.offset=" + V(o));
-                lines.Add($"p{p}.depthSize=" + cap.DepthSize.ToString(CultureInfo.InvariantCulture));
-                lines.Add($"p{p}.depthRange=" + cap.DepthRange.ToString("R", CultureInfo.InvariantCulture));
-                lines.Add($"p{p}.sun=" + C(cap.Sun));
-                lines.Add($"p{p}.ambient=" + C(cap.Ambient));
-                lines.Add($"p{p}.fog=" + C(cap.Fog));
-                lines.Add($"p{p}.dayFraction=" + cap.DayFraction.ToString("R", CultureInfo.InvariantCulture));
-                lines.Add($"p{p}.avgLum=" + cap.AverageLuminance.ToString("R", CultureInfo.InvariantCulture));
-                lines.Add($"p{p}.avgColor=" + C(cap.AverageColor));
             }
-            File.WriteAllText(MetaPath(dir, key), string.Join("\n", lines));
+            string pre = "p" + p + ".";
+            job.Lines.Add(pre + "offset=" + V(pt.Offset));
+            job.Lines.Add(pre + "sun=" + C(pt.Sun));
+            job.Lines.Add(pre + "ambient=" + C(pt.Ambient));
+            job.Lines.Add(pre + "fog=" + C(pt.Fog));
+            job.Lines.Add(pre + "dayFraction=" + pt.DayFraction.ToString("R", CultureInfo.InvariantCulture));
+            job.Lines.Add(pre + "avgLum=" + pt.AverageLuminance.ToString("R", CultureInfo.InvariantCulture));
+            job.Lines.Add(pre + "avgColor=" + C(pt.AverageColor));
+        }
+
+        internal static void Finish(Job job, int points, long takenAt)
+        {
+            var lines = new List<string>
+            {
+                "format=" + Format,
+                "takenAt=" + takenAt.ToString(CultureInfo.InvariantCulture),
+                "points=" + points.ToString(CultureInfo.InvariantCulture),
+            };
+            lines.AddRange(job.Lines);
+            File.WriteAllText(MetaPath(job.Dir, job.Key), string.Join("\n", lines));
         }
 
         /// <summary>Unix time of the stored capture for this portal, or -1 if there is none.</summary>
@@ -74,7 +124,8 @@ namespace LivePortals
             return File.GetLastWriteTimeUtc(mp).Ticks;
         }
 
-        internal static CaptureSet Load(ZDOID id)
+        /// <summary>opaqueAlpha: for the blended fallback material, which would show filled-in texels (alpha 160) as see-through: every texel becomes fully opaque or fully clear.</summary>
+        internal static CaptureSet Load(ZDOID id, bool opaqueAlpha = false)
         {
             string dir = Dir(), key = Key(id);
             string mp = MetaPath(dir, key);
@@ -82,53 +133,38 @@ namespace LivePortals
             var set = new CaptureSet();
             try
             {
-                var meta = new System.Collections.Generic.Dictionary<string, string>();
+                var meta = new Dictionary<string, string>();
                 foreach (var line in File.ReadAllLines(mp))
                 {
                     int eq = line.IndexOf('=');
                     if (eq > 0) meta[line.Substring(0, eq)] = line.Substring(eq + 1);
                 }
+                if (!meta.TryGetValue("format", out var fmt) || fmt != Format) return null; // older layout: replaced by the next trip
                 if (!meta.TryGetValue("points", out var ps) || !int.TryParse(ps, NumberStyles.Integer, CultureInfo.InvariantCulture, out int points) || points < 1)
-                    return null; // pre-0.6 layout: not readable, will be replaced by the next trip
+                    return null;
                 if (meta.TryGetValue("takenAt", out var ta)) long.TryParse(ta, NumberStyles.Integer, CultureInfo.InvariantCulture, out set.TakenAt);
+                set.Grass = GrassSet.Load(GrassPath(dir, key));
                 for (int p = 0; p < points; p++)
                 {
                     var cap = new PortalCapture { TakenAt = set.TakenAt };
+                    set.Captures.Add(cap); // owned by the set from here on, so a failure below frees its textures
+                    set.Offsets.Add(Vector3.zero);
+                    if (!ReadGrids(GridPath(dir, key, p), cap)) { set.Destroy(); return null; }
                     for (int i = 0; i < 6; i++)
                     {
-                        string fp = FacePath(dir, key, p, i);
-                        if (!File.Exists(fp)) { cap.Destroy(); set.Destroy(); return null; }
-                        var tex = new Texture2D(2, 2, TextureFormat.RGBA32, true);
-                        if (!tex.LoadImage(File.ReadAllBytes(fp), false)) { cap.Destroy(); set.Destroy(); return null; }
-                        tex.wrapMode = TextureWrapMode.Clamp; tex.filterMode = FilterMode.Bilinear;
-                        cap.Faces[i] = tex;
-                        string bp = BackPath(dir, key, p, i);
-                        if (File.Exists(bp))
-                        {
-                            var bt = new Texture2D(2, 2, TextureFormat.RGBA32, true);
-                            if (bt.LoadImage(File.ReadAllBytes(bp), false)) { bt.wrapMode = TextureWrapMode.Clamp; bt.filterMode = FilterMode.Bilinear; cap.Backdrops[i] = bt; }
-                            else UnityEngine.Object.Destroy(bt);
-                        }
+                        if (cap.Grids[i] == null) continue;
+                        cap.Faces[i] = LoadPng(FacePath(dir, key, p, i), opaqueAlpha);
+                        if (cap.Faces[i] == null) { set.Destroy(); return null; }
+                        cap.Fronts[i] = LoadPng(FrontPath(dir, key, p, i), opaqueAlpha);
                     }
                     string pre = "p" + p + ".";
-                    if (meta.TryGetValue(pre + "depthSize", out var ds)) int.TryParse(ds, NumberStyles.Integer, CultureInfo.InvariantCulture, out cap.DepthSize);
-                    if (meta.TryGetValue(pre + "depthRange", out var dr)) float.TryParse(dr, NumberStyles.Float, CultureInfo.InvariantCulture, out cap.DepthRange);
                     if (meta.TryGetValue(pre + "sun", out var s)) cap.Sun = P(s);
                     if (meta.TryGetValue(pre + "ambient", out var a)) cap.Ambient = P(a);
                     if (meta.TryGetValue(pre + "fog", out var f)) cap.Fog = P(f);
                     if (meta.TryGetValue(pre + "dayFraction", out var df)) float.TryParse(df, NumberStyles.Float, CultureInfo.InvariantCulture, out cap.DayFraction);
                     if (meta.TryGetValue(pre + "avgLum", out var al)) float.TryParse(al, NumberStyles.Float, CultureInfo.InvariantCulture, out cap.AverageLuminance);
                     if (meta.TryGetValue(pre + "avgColor", out var ac)) cap.AverageColor = P(ac);
-                    if (cap.DepthSize >= 2)
-                        for (int i = 0; i < 6; i++)
-                        {
-                            string dp = DepthPath(dir, key, p, i);
-                            cap.Depth[i] = File.Exists(dp) ? DecodeDepth(File.ReadAllBytes(dp), cap.DepthSize, cap.DepthRange) : null;
-                        }
-                    Vector3 off = Vector3.zero;
-                    if (meta.TryGetValue(pre + "offset", out var os)) off = PV(os);
-                    set.Captures.Add(cap);
-                    set.Offsets.Add(off);
+                    if (meta.TryGetValue(pre + "offset", out var os)) set.Offsets[p] = PV(os);
                 }
                 return set;
             }
@@ -140,32 +176,73 @@ namespace LivePortals
             }
         }
 
-        /// <summary>Depth as a PNG: 16 bits per node in the red (high) and green (low) channels.</summary>
-        private static byte[] EncodeDepth(float[] depth, int n, float range)
+        private static Texture2D LoadPng(string path, bool opaqueAlpha)
         {
-            var tex = new Texture2D(n, n, TextureFormat.RGBA32, false);
-            var px = new Color32[n * n];
-            for (int i = 0; i < px.Length; i++)
+            if (!File.Exists(path)) return null;
+            var tex = new Texture2D(2, 2, TextureFormat.RGBA32, true);
+            if (!tex.LoadImage(File.ReadAllBytes(path), !opaqueAlpha)) { UnityEngine.Object.Destroy(tex); return null; }
+            if (opaqueAlpha)
             {
-                int v = Mathf.Clamp(Mathf.RoundToInt(depth[i] / range * 65535f), 0, 65535);
-                px[i] = new Color32((byte)(v >> 8), (byte)(v & 255), 0, 255);
+                var px = tex.GetPixels32();
+                for (int i = 0; i < px.Length; i++) px[i].a = px[i].a >= 100 ? (byte)255 : (byte)0;
+                tex.SetPixels32(px);
+                tex.Apply(true, true);
             }
-            tex.SetPixels32(px);
-            tex.Apply(false, false);
-            byte[] png = tex.EncodeToPNG();
-            UnityEngine.Object.Destroy(tex);
-            return png;
+            tex.wrapMode = TextureWrapMode.Clamp;
+            tex.filterMode = FilterMode.Bilinear;
+            return tex;
         }
 
-        private static float[] DecodeDepth(byte[] png, int n, float range)
+        private static bool ReadGrids(string path, PortalCapture cap)
         {
-            var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-            if (!tex.LoadImage(png, false) || tex.width != n || tex.height != n) { UnityEngine.Object.Destroy(tex); return null; }
-            var px = tex.GetPixels32();
-            UnityEngine.Object.Destroy(tex);
-            var depth = new float[n * n];
-            for (int i = 0; i < depth.Length; i++) depth[i] = ((px[i].r << 8) | px[i].g) / 65535f * range;
-            return depth;
+            if (!File.Exists(path)) return false;
+            using (var r = new BinaryReader(File.OpenRead(path)))
+            {
+                int magic = r.ReadInt32();
+                if (magic != GridMagic && magic != GridMagic07) return false;
+                int n = r.ReadInt32();
+                float range = r.ReadSingle();
+                float tan = magic == GridMagic ? r.ReadSingle() : 1f;
+                if (n < 2 || n > 2049) return false;
+                cap.Grid = n;
+                cap.DepthRange = range;
+                int cells = (n - 1) * (n - 1);
+                for (int i = 0; i < 6; i++)
+                {
+                    if (magic == GridMagic && r.ReadByte() == 0) continue;
+                    cap.Grids[i] = new FaceGrids
+                    {
+                        Tan = tan,
+                        BgNode = ReadDepths(r, n * n, range),
+                        BgCell = ReadDepths(r, cells, range),
+                        FgNode = ReadDepths(r, n * n, range),
+                        FgCell = ReadDepths(r, cells, range),
+                    };
+                }
+            }
+            return true;
+        }
+
+        /// <summary>Depths as 16-bit fractions of the range; 0 is kept for "none".</summary>
+        private static void WriteDepths(BinaryWriter w, float[] d, float range)
+        {
+            var bytes = new byte[d.Length * 2];
+            for (int i = 0; i < d.Length; i++)
+            {
+                int v = d[i] <= 0f ? 0 : Mathf.Clamp(Mathf.RoundToInt(d[i] / range * 65535f), 1, 65535);
+                bytes[i * 2] = (byte)(v >> 8);
+                bytes[i * 2 + 1] = (byte)(v & 255);
+            }
+            w.Write(bytes);
+        }
+
+        private static float[] ReadDepths(BinaryReader r, int count, float range)
+        {
+            var bytes = r.ReadBytes(count * 2);
+            if (bytes.Length != count * 2) throw new EndOfStreamException("grid file is short");
+            var d = new float[count];
+            for (int i = 0; i < count; i++) d[i] = ((bytes[i * 2] << 8) | bytes[i * 2 + 1]) / 65535f * range;
+            return d;
         }
 
         private static string C(Color c) => string.Join(",", new[]

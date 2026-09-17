@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Offline check of the layer split and relief geometry: a synthetic scene is "captured", layered, then drawn from
+       other eye positions with a small software rasterizer next to the ray-traced truth. Output: PPM images.
+       Build the mod first (it references ..\..\dist\LivePortals.dll). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RollForward>Major</RollForward>
+    <Nullable>disable</Nullable>
+    <ValheimDir Condition="'$(ValheimDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Valheim</ValheimDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="LivePortals"><HintPath>..\..\dist\LivePortals.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(ValheimDir)\valheim_Data\Managed\UnityEngine.CoreModule.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>

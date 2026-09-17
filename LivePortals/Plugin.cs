@@ -7,6 +7,8 @@ using BepInEx.Logging;
 using HarmonyLib;
 using UnityEngine;
 
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("LayerTest")]
+
 namespace LivePortals
 {
     /// <summary>
@@ -20,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "LivePortals";
-        public const string VERSION = "0.6.0";
+        public const string VERSION = "0.9.0";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -32,7 +34,7 @@ namespace LivePortals
         internal static ConfigEntry<int> CapturePoints;
         internal static ConfigEntry<int> WindowResolution;
         internal static ConfigEntry<float> DepthRange;
-        internal static ConfigEntry<int> DepthGrid;
+        internal static ConfigEntry<int> MeshGrid;
         internal static ConfigEntry<float> RangeMultiplier;
         internal static ConfigEntry<float> FullMultiplier;
         internal static ConfigEntry<float> PaneWidth;
@@ -41,31 +43,16 @@ namespace LivePortals
         internal static ConfigEntry<float> RingCenterOffset;
         internal static ConfigEntry<float> PaneForwardOffset;
         internal static ConfigEntry<bool> PaneRound;
-        internal static ConfigEntry<float> DepthScale;
         internal static ConfigEntry<bool> TuneKeys;
         internal static ConfigEntry<bool> GlassTest;
         internal static ConfigEntry<bool> ArrivalViewBothSides;
 
-        /// <summary>
-        /// World position of the portal ring's centre, where the pane sits and captures are taken from. The
-        /// vanilla swirl effect is placed exactly there, so use it when present; else a height above the base.
-        /// </summary>
-        internal static Vector3 RingCenter(TeleportWorld tw)
-        {
-            // The swirl effect's root sits at the portal's base, so it is no help; the model's bounds centre is at
-            // ring height on the vanilla portal (1.64 m). RingCenterHeight > 0 overrides that.
-            float h = RingCenterHeight.Value;
-            if (h <= 0f)
-            {
-                h = 1.64f;
-                if (tw.m_model != null)
-                {
-                    float fromBounds = Vector3.Dot(tw.m_model.bounds.center - tw.transform.position, tw.transform.up);
-                    if (fromBounds > 0.5f && fromBounds < 4f) h = fromBounds;
-                }
-            }
-            return tw.transform.position + tw.transform.rotation * new Vector3(0f, h + RingCenterOffset.Value, PaneForwardOffset.Value);
-        }
+        internal static ConfigEntry<float> OtherPaneWidth;
+        internal static ConfigEntry<float> OtherPaneHeight;
+        internal static ConfigEntry<float> OtherCenterHeight;
+
+        /// <summary>World position of the centre of the portal's opening, where the pane sits and captures are taken from.</summary>
+        internal static Vector3 RingCenter(TeleportWorld tw) => PortalShape.Of(tw).Centre;
         internal static ConfigEntry<bool> CaptureOnDeparture;
         internal static ConfigEntry<bool> CaptureOnArrival;
         internal static ConfigEntry<float> DepartureDelay;
@@ -73,6 +60,8 @@ namespace LivePortals
         internal static ConfigEntry<bool> LiveSky;
         internal static ConfigEntry<float> ToneMatch;
         internal static ConfigEntry<float> CaptureExposure;
+        internal static ConfigEntry<bool> CaptureFog;
+        internal static ConfigEntry<float> GrassGap;
         internal static ConfigEntry<float> PortalLight;
         internal static ConfigEntry<float> PortalLightRange;
         internal static ConfigEntry<int> MaxWindows;
@@ -94,8 +83,8 @@ namespace LivePortals
             CaptureResolution = Config.Bind("1. General", "CaptureResolution", 768,
                 new ConfigDescription("Pixels per cube face captured at a portal. 1024 costs almost twice the disk and memory of 768.",
                     new AcceptableValueRange<int>(128, 1024)));
-            CapturePoints = Config.Bind("1. General", "CapturePoints", 3,
-                new ConfigDescription("Capture from this many points across the ring (centre, then left/right, then up/down). More points fill in what one viewpoint cannot see behind near objects; each costs capture time, disk and memory.",
+            CapturePoints = Config.Bind("1. General", "CaptureViewpoints", 4,
+                new ConfigDescription("Capture from this many points (the ring's centre, then above it, then right and left of it, then below). More points fill in what one viewpoint cannot see behind near things; each costs capture time, disk and memory. The extra points skip the faces looking back and up.",
                     new AcceptableValueRange<int>(1, 5)));
             WindowResolution = Config.Bind("1. General", "WindowResolution", 768,
                 new ConfigDescription("Pixels of the texture each window is drawn into every frame.",
@@ -103,12 +92,20 @@ namespace LivePortals
             DepthRange = Config.Bind("1. General", "DepthRange", 120f,
                 new ConfigDescription("Metres of depth captured per pixel; anything farther (and the sky) sits at this distance. Larger = flatter far parallax, less stretch at edges.",
                     new AcceptableValueRange<float>(20f, 500f)));
-            DepthGrid = Config.Bind("1. General", "DepthGrid", 96,
-                new ConfigDescription("Vertices per edge of each displaced capture face. Higher = crisper silhouettes, more triangles.",
-                    new AcceptableValueRange<int>(16, 256)));
-            RangeMultiplier = Config.Bind("2. Window", "RangeMultiplier", 4f,
-                new ConfigDescription("The window starts to appear at this many times the portal's activation range (5 m in vanilla, so 4 = 20 m).",
-                    new AcceptableValueRange<float>(1f, 10f)));
+            MeshGrid = Config.Bind("1. General", "MeshGrid", 128,
+                new ConfigDescription("Cells per edge of each captured face's relief mesh. Silhouettes are cut per pixel by the textures regardless; this sets how finely surfaces follow the captured depth.",
+                    new AcceptableValueRange<int>(32, 256)));
+            RangeMultiplier = Config.Bind("2. Window", "RangeMultiplier", 8f,
+                new ConfigDescription("The window starts to dissolve in at this many times the portal's activation range (5 m in vanilla, so 8 = 40 m).",
+                    new AcceptableValueRange<float>(1f, 20f)));
+            // Settings files written before 0.8.16 hold the old default of 4; Max asked for the transition to start
+            // from twice as far. Done once, so a 4 chosen later on purpose stays.
+            var configVersion = Config.Bind("1. General", "ConfigVersion", 0, "Internal: which defaults this file has been brought up to. Leave alone.");
+            if (configVersion.Value < 1)
+            {
+                if (Mathf.Approximately(RangeMultiplier.Value, 4f)) RangeMultiplier.Value = 8f;
+                configVersion.Value = 1;
+            }
             FullMultiplier = Config.Bind("2. Window", "FullMultiplier", 1f,
                 new ConfigDescription("The window is fully visible from this many times the activation range inward.",
                     new AcceptableValueRange<float>(0.2f, 10f)));
@@ -122,12 +119,16 @@ namespace LivePortals
             RingCenterOffset = Config.Bind("2. Window", "RingCenterOffset", -0.35f,
                 new ConfigDescription("Vertical nudge of the pane and capture point from the model's centre, metres (the vanilla ring sits a little below it).",
                     new AcceptableValueRange<float>(-1f, 1f)));
+            OtherPaneWidth = Config.Bind("2. Window", "OtherPaneWidth", 0f,
+                new ConfigDescription("Pane width for every portal that is not the wooden one (the stone portal, modded portals), metres. 0 = measure the opening from the portal's own colliders.",
+                    new AcceptableValueRange<float>(0f, 12f)));
+            OtherPaneHeight = Config.Bind("2. Window", "OtherPaneHeight", 0f,
+                new ConfigDescription("Pane height for those portals. 0 = measured.", new AcceptableValueRange<float>(0f, 12f)));
+            OtherCenterHeight = Config.Bind("2. Window", "OtherCenterHeight", 0f,
+                new ConfigDescription("Height of the opening's centre above the base of those portals. 0 = measured.", new AcceptableValueRange<float>(0f, 12f)));
             PaneRound = Config.Bind("2. Window", "PaneRound", true, "Round pane (the ring's shape) instead of a square.");
-            DepthScale = Config.Bind("2. Window", "DepthScale", 1f,
-                new ConfigDescription("Scale of the captured world behind the window. 1 = true size; below 1 brings it closer and larger, above 1 pushes it away.",
-                    new AcceptableValueRange<float>(0.2f, 5f)));
             TuneKeys = Config.Bind("2. Window", "TuneKeys", true,
-                "Numpad tuning while in game: 8/2 ring height, 4/6 forward offset, 7/9 pane width, 1/3 pane height, +/- depth scale, 5 prints and saves, 0 captures the nearest portal now, . (period) toggles the glass test. Values are saved to this file.");
+                "Numpad tuning while in game: 8/2 ring height, 4/6 forward offset, 7/9 pane width, 1/3 pane height, . (period) toggles the glass test, 5 prints, saves, and dumps what every visible window drew (BepInEx/config/LivePortals/debug), 0 captures the nearest portal now. Values are saved to this file.");
             GlassTest = Config.Bind("2. Window", "GlassTest", false,
                 "Diagnostic: each window shows its OWN portal's capture with no portal mapping, so the ring should look like a pane of glass onto the real surroundings. Capture with numpad 0 first.");
             ArrivalViewBothSides = Config.Bind("2. Window", "ArrivalViewBothSides", false,
@@ -150,6 +151,11 @@ namespace LivePortals
             CaptureExposure = Config.Bind("4. Look", "CaptureExposure", 1f,
                 new ConfigDescription("Overall brightness multiplier for captures (they are taken without the game's post-processing).",
                     new AcceptableValueRange<float>(0.2f, 3f)));
+            CaptureFog = Config.Bind("4. Look", "CaptureFog", true,
+                "Capture with the game's own distance fog and ambient occlusion (its post-processing stack, everything else in it switched off). Off = raw geometry colours, which look too crisp and bright at a distance.");
+            GrassGap = Config.Bind("4. Look", "GrassGap", 0.75f,
+                new ConfigDescription("Grass closer than this to the far portal's centre is not drawn in the window, metres (blades standing in the ring itself).",
+                    new AcceptableValueRange<float>(0f, 10f)));
             PortalLight = Config.Bind("4. Look", "PortalLight", 1f,
                 new ConfigDescription("Light spilling out of the window when the far side is brighter than here. 0 = off.",
                     new AcceptableValueRange<float>(0f, 5f)));
@@ -218,16 +224,37 @@ namespace LivePortals
         private void UpdateTuneKeys(Player player)
         {
             bool changed = false;
-            if (ZInput.GetKeyDown(KeyCode.Keypad8, false)) { RingCenterOffset.Value = Round(RingCenterOffset.Value + 0.05f); changed = true; }
-            if (ZInput.GetKeyDown(KeyCode.Keypad2, false)) { RingCenterOffset.Value = Round(RingCenterOffset.Value - 0.05f); changed = true; }
+            // The keys tune the kind of portal you stand nearest to: the wooden one, or "other" (the stone portal
+            // and anything modded), whose values start from what was measured on that portal.
+            TeleportWorld near = null; float nearD = 30f;
+            foreach (var tw in UnityEngine.Object.FindObjectsByType<TeleportWorld>(FindObjectsSortMode.None))
+            {
+                float d = Vector3.Distance(tw.transform.position, player.transform.position);
+                if (d < nearD) { nearD = d; near = tw; }
+            }
+            bool other = near != null && !PortalShape.IsWood(near);
+            float dy = (ZInput.GetKeyDown(KeyCode.Keypad8, false) ? 0.05f : 0f) - (ZInput.GetKeyDown(KeyCode.Keypad2, false) ? 0.05f : 0f);
+            float dw = (ZInput.GetKeyDown(KeyCode.Keypad9, false) ? 0.05f : 0f) - (ZInput.GetKeyDown(KeyCode.Keypad7, false) ? 0.05f : 0f);
+            float dh = (ZInput.GetKeyDown(KeyCode.Keypad3, false) ? 0.05f : 0f) - (ZInput.GetKeyDown(KeyCode.Keypad1, false) ? 0.05f : 0f);
+            if (dy != 0f || dw != 0f || dh != 0f)
+            {
+                changed = true;
+                if (other)
+                {
+                    PortalShape.MeasuredValues(near, out float mw, out float mh, out float mc);
+                    if (dw != 0f) OtherPaneWidth.Value = Round((OtherPaneWidth.Value > 0f ? OtherPaneWidth.Value : mw) + dw);
+                    if (dh != 0f) OtherPaneHeight.Value = Round((OtherPaneHeight.Value > 0f ? OtherPaneHeight.Value : mh) + dh);
+                    if (dy != 0f) OtherCenterHeight.Value = Round((OtherCenterHeight.Value > 0f ? OtherCenterHeight.Value : mc) + dy);
+                }
+                else
+                {
+                    RingCenterOffset.Value = Round(RingCenterOffset.Value + dy);
+                    PaneWidth.Value = Round(PaneWidth.Value + dw);
+                    PaneHeight.Value = Round(PaneHeight.Value + dh);
+                }
+            }
             if (ZInput.GetKeyDown(KeyCode.Keypad6, false)) { PaneForwardOffset.Value = Round(PaneForwardOffset.Value + 0.05f); changed = true; }
             if (ZInput.GetKeyDown(KeyCode.Keypad4, false)) { PaneForwardOffset.Value = Round(PaneForwardOffset.Value - 0.05f); changed = true; }
-            if (ZInput.GetKeyDown(KeyCode.Keypad9, false)) { PaneWidth.Value = Round(PaneWidth.Value + 0.05f); changed = true; }
-            if (ZInput.GetKeyDown(KeyCode.Keypad7, false)) { PaneWidth.Value = Round(PaneWidth.Value - 0.05f); changed = true; }
-            if (ZInput.GetKeyDown(KeyCode.Keypad3, false)) { PaneHeight.Value = Round(PaneHeight.Value + 0.05f); changed = true; }
-            if (ZInput.GetKeyDown(KeyCode.Keypad1, false)) { PaneHeight.Value = Round(PaneHeight.Value - 0.05f); changed = true; }
-            if (ZInput.GetKeyDown(KeyCode.KeypadPlus, false)) { DepthScale.Value = Round(DepthScale.Value * 1.05f); changed = true; }
-            if (ZInput.GetKeyDown(KeyCode.KeypadMinus, false)) { DepthScale.Value = Round(DepthScale.Value / 1.05f); changed = true; }
             if (ZInput.GetKeyDown(KeyCode.Keypad0, false))
             {
                 TeleportWorld best = null; float bestD = 8f;
@@ -247,9 +274,16 @@ namespace LivePortals
                 Log.LogInfo("LivePortals: glass test " + GlassTest.Value);
             }
             bool print = ZInput.GetKeyDown(KeyCode.Keypad5, false);
+            if (print) PortalWindow.DumpRequest++;
             if (!changed && !print) return;
             Config.Save();
-            string s = $"ring height +{RingCenterOffset.Value:0.00}  fwd {PaneForwardOffset.Value:0.00}  pane {PaneWidth.Value:0.00}x{PaneHeight.Value:0.00}  depth x{DepthScale.Value:0.00}";
+            string s;
+            if (other)
+            {
+                var shape = PortalShape.Of(near);
+                s = $"{Utils.GetPrefabName(near.gameObject)}: pane {shape.Width:0.00}x{shape.Height:0.00}, centre {Vector3.Dot(shape.Centre - near.transform.position, near.transform.up):0.00} m up, fwd {PaneForwardOffset.Value:0.00}";
+            }
+            else s = $"ring height +{RingCenterOffset.Value:0.00}  fwd {PaneForwardOffset.Value:0.00}  pane {PaneWidth.Value:0.00}x{PaneHeight.Value:0.00}";
             player.Message(MessageHud.MessageType.Center, "LivePortals: " + s);
             Log.LogInfo("LivePortals tune: " + s);
         }
@@ -286,7 +320,14 @@ namespace LivePortals
             if (ArrivalDelay.Value > 0f) yield return new WaitForSeconds(ArrivalDelay.Value);
             else yield return null;
             if (player == null) yield break;
-            TeleportWorld best = null; float bestD = 4f;
+            // Grass grows in a patch per frame around the player; right after arriving there is none yet. Have the
+            // game build all of it now, while the screen is still black.
+            var clutter = ClutterSystem.instance;
+            for (int i = 0; i < 30 && clutter != null && !clutter.IsHeightmapReady(); i++) yield return null;
+            if (player == null) yield break;
+            try { if (clutter != null && clutter.IsHeightmapReady()) clutter.UpdateGrass(0f, true, player.transform.position); }
+            catch (Exception e) { Log.LogWarning("LivePortals: could not pre-build grass: " + e.Message); }
+            TeleportWorld best = null; float bestD = 6f; // the stone portal sets you down farther out than the wooden one
             foreach (var tw in UnityEngine.Object.FindObjectsByType<TeleportWorld>(FindObjectsSortMode.None))
             {
                 float d = Vector3.Distance(tw.transform.position, player.transform.position);
@@ -301,40 +342,86 @@ namespace LivePortals
             StartCoroutine(CaptureSeries(portal, why));
         }
 
-        /// <summary>Capture the portal from several points across its ring, one point per frame, then store the set.</summary>
+        private class Work
+        {
+            public volatile bool Done;
+            public string Error;
+            public int FrontFaces;
+            public double Seconds;
+        }
+
+        private static readonly HashSet<ZDOID> _busy = new HashSet<ZDOID>();
+
+        /// <summary>
+        /// Render the portal from every capture point in this frame (nothing moves between them), then split the
+        /// faces into layers, encode and store them on a worker thread, so the game only hitches for the renders.
+        /// </summary>
         private IEnumerator CaptureSeries(TeleportWorld portal, string why)
         {
             var nview = portal != null ? portal.GetComponent<ZNetView>() : null;
             if (nview == null || !nview.IsValid()) yield break;
             ZDOID id = nview.GetZDO().m_uid;
-            var set = new CaptureSet();
-            var offsets = CaptureSet.PointOffsets(CapturePoints.Value);
-            Quaternion rot = portal.transform.rotation;
-            Vector3 centre = RingCenter(portal);
-            for (int k = 0; k < offsets.Length; k++)
-            {
-                if (portal == null) { set.Destroy(); yield break; }
-                Vector3 pos = centre + rot * offsets[k] + portal.transform.forward * 0.15f;
-                PortalCapture cap = null;
-                try { cap = Capture.Take(pos, rot, portal); }
-                catch (Exception e) { Log.LogWarning("LivePortals: capture failed: " + e); }
-                if (cap == null) { set.Destroy(); yield break; }
-                set.Captures.Add(cap);
-                set.Offsets.Add(offsets[k]);
-                if (k < offsets.Length - 1) yield return null;
-            }
-            set.TakenAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            if (!_busy.Add(id)) { Dbg("capture of " + Storage.Key(id) + " already running, skipped"); yield break; }
+
+            List<RawPoint> points = null;
+            GrassSet grass = null;
+            Storage.Job job = null;
+            float t0 = Time.realtimeSinceStartup;
             try
             {
-                Storage.Save(id, set);
-                PortalWindow.NotifyCaptureUpdated(id);
-                Log.LogInfo($"LivePortals: {why} capture at portal {Storage.Key(id)}: {set.Captures.Count} points, {set.Primary.Faces[0].width}px faces.");
+                // The secondary viewpoints spread with the opening: a stone portal's is about twice the wooden one's.
+                var shape = PortalShape.Of(portal);
+                var offsets = CaptureSet.PointOffsets(CapturePoints.Value);
+                float sx = Mathf.Clamp(shape.Width / 2.7f, 1f, 3f), sy = Mathf.Clamp(shape.Height / 2.8f, 1f, 3f);
+                for (int i = 0; i < offsets.Length; i++) offsets[i] = new Vector3(offsets[i].x * sx, offsets[i].y * sy, offsets[i].z);
+                points = Capture.RenderPoints(shape.Centre, portal.transform.rotation, offsets, portal);
+                if (points != null && points.Count > 0)
+                {
+                    job = Storage.Begin(id);
+                    grass = GrassSet.Record(shape.Centre, portal.transform.rotation);
+                }
             }
-            catch (Exception e)
+            catch (Exception e) { Log.LogWarning("LivePortals: capture failed: " + e); }
+            if (job == null) { _busy.Remove(id); yield break; }
+            float renderMs = (Time.realtimeSinceStartup - t0) * 1000f;
+
+            long takenAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            float skyPct = points[0].SkyFraction * 100f, diffPct = points[0].DiffFraction * 100f, median = points[0].MedianDepth;
+            var work = new Work();
+            System.Threading.ThreadPool.QueueUserWorkItem(_ =>
             {
-                Log.LogWarning("LivePortals: could not save capture: " + e);
-            }
-            set.Destroy();
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                try
+                {
+                    Storage.Clear(job);
+                    for (int k = 0; k < points.Count; k++)
+                    {
+                        var pt = points[k];
+                        var grids = new FaceGrids[6];
+                        for (int i = 0; i < 6; i++)
+                        {
+                            if (pt.Faces[i] == null) continue;
+                            var layers = Layers.Process(pt.Faces[i], pt.Res, pt.Step, pt.DepthRange);
+                            layers.Grids.Tan = pt.FaceTan;
+                            pt.Faces[i] = null;
+                            Storage.SaveFace(job, k, i, layers, pt.Res);
+                            grids[i] = layers.Grids;
+                            if (layers.Front != null) work.FrontFaces++;
+                        }
+                        Storage.SavePoint(job, k, pt, grids);
+                    }
+                    Storage.SaveGrass(job, grass);
+                    Storage.Finish(job, points.Count, takenAt);
+                }
+                catch (Exception e) { work.Error = e.ToString(); }
+                work.Seconds = sw.Elapsed.TotalSeconds;
+                work.Done = true;
+            });
+            while (!work.Done) yield return null;
+            _busy.Remove(id);
+            if (work.Error != null) { Log.LogWarning("LivePortals: could not store capture: " + work.Error); yield break; }
+            PortalWindow.NotifyCaptureUpdated(id);
+            Log.LogInfo($"LivePortals: {why} capture at portal {Storage.Key(id)}: {points.Count} points, {points[0].Res}px faces, grid {points[0].Res / points[0].Step}, {work.FrontFaces} faces with foreground, {(grass != null ? grass.Count : 0)} grass instances, forward face {skyPct:0}% sky ({diffPct:0}% by colour) with median depth {median:0.0} m; rendered in {renderMs:0} ms, layered and stored in {work.Seconds:0.0} s.");
         }
     }
 
