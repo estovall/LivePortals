@@ -20,7 +20,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "LivePortals";
-        public const string VERSION = "0.3.5";
+        public const string VERSION = "0.3.6";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -123,7 +123,7 @@ namespace LivePortals
                 new ConfigDescription("Scale of the captured world behind the window. 1 = true size; below 1 brings it closer and larger, above 1 pushes it away.",
                     new AcceptableValueRange<float>(0.2f, 5f)));
             TuneKeys = Config.Bind("2. Window", "TuneKeys", true,
-                "Numpad tuning while in game: 8/2 ring height, 4/6 forward offset, 7/9 pane width, 1/3 pane height, +/- depth scale, 5 prints and saves, 0 captures the nearest portal now. Values are saved to this file.");
+                "Numpad tuning while in game: 8/2 ring height, 4/6 forward offset, 7/9 pane width, 1/3 pane height, +/- depth scale, 5 prints and saves, 0 captures the nearest portal now, . (period) toggles the glass test. Values are saved to this file.");
             GlassTest = Config.Bind("2. Window", "GlassTest", false,
                 "Diagnostic: each window shows its OWN portal's capture with no portal mapping, so the ring should look like a pane of glass onto the real surroundings. Capture with numpad 0 first.");
             ArrivalViewBothSides = Config.Bind("2. Window", "ArrivalViewBothSides", true,
@@ -234,6 +234,13 @@ namespace LivePortals
                 }
                 if (best != null) { CaptureAt(best, "manual"); player.Message(MessageHud.MessageType.Center, "LivePortals: captured " + best.name); }
                 else player.Message(MessageHud.MessageType.Center, "LivePortals: no portal within 8 m");
+            }
+            if (ZInput.GetKeyDown(KeyCode.KeypadPeriod, false))
+            {
+                GlassTest.Value = !GlassTest.Value;
+                Config.Save();
+                player.Message(MessageHud.MessageType.Center, "LivePortals: glass test " + (GlassTest.Value ? "ON (windows show their own portal, no mapping)" : "OFF"));
+                Log.LogInfo("LivePortals: glass test " + GlassTest.Value);
             }
             bool print = ZInput.GetKeyDown(KeyCode.Keypad5, false);
             if (!changed && !print) return;
