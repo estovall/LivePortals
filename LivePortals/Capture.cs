@@ -179,25 +179,25 @@ namespace LivePortals
         internal const float FaceFov = 92f;
         internal static readonly float FaceTan = Mathf.Tan(FaceFov * 0.5f * Mathf.Deg2Rad);
 
-        private class Rig
+        /// <summary>The cameras and targets of one capture. Built on the main thread; CaptureRun uses it over several frames.</summary>
+        internal class Rig
         {
             public Camera Cam;       // sky mask and depth: nothing attached
             public Camera ColorCam;  // colour: carries the game's fog and ambient occlusion when CaptureFog is on
-            public int Res;
-            public float Far;
-            public bool Hdr, Msaa;
+            public GameObject Go, ColorGo;
+            public PostProcessingProfile Profile;
+            public int Res, Step;
+            public float Far, DepthRange, WaterLevel;
+            public bool Hdr, Msaa, FogOn;
             public RenderTexture Color, A, B, Z, F;
-            public Texture2D TexC, TexA, TexB, TexF;
+            public Texture2D TexC, TexA, TexB, TexF; // for reads done on the spot: the probes, and every read when async readback is unavailable
             public CommandBuffer DepthCopy;
+            /// <summary>Depth comes from physics rays (no GPU depth read agreed with them, or none has been checked yet).</summary>
+            public bool Rays => _method == DepthMethod.Rays || _method == DepthMethod.Unknown;
         }
 
-        /// <summary>
-        /// Render every capture point in this one frame, so nothing animated moves between them. Per face: colour
-        /// with the game's fog; a black/white clear pair with fog off whose differing pixels were never drawn (sky);
-        /// and the GPU's own depth for every pixel. The local player, this portal and every window are hidden
-        /// meanwhile. The result is plain arrays; Layers turns them into textures and grids off the main thread.
-        /// </summary>
-        internal static List<RawPoint> RenderPoints(Vector3 centre, Quaternion rot, Vector3[] offsets, TeleportWorld portal)
+        /// <summary>Cameras and targets for a capture, or null without a game camera. Main thread.</summary>
+        internal static Rig MakeRig()
         {
             var gc = GameCamera.instance;
             if (gc == null || gc.m_camera == null) { Plugin.Log.LogWarning("LivePortals: no game camera, cannot capture."); return null; }
@@ -293,7 +293,9 @@ namespace LivePortals
 
             var rig = new Rig
             {
-                Cam = cam, ColorCam = colorCam, Res = res, Far = cam.farClipPlane, Hdr = cam.allowHDR, Msaa = cam.allowMSAA,
+                Cam = cam, ColorCam = colorCam, Go = go, ColorGo = colorGo, Profile = profile, Res = res, Step = step, DepthRange = depthRange,
+                Far = cam.farClipPlane, Hdr = cam.allowHDR, Msaa = cam.allowMSAA, FogOn = RenderSettings.fog,
+                WaterLevel = ZoneSystem.instance != null ? ZoneSystem.instance.m_waterLevel : 30f,
                 Color = new RenderTexture(res, res, 24, RenderTextureFormat.ARGB32),
                 A = new RenderTexture(res, res, 24, RenderTextureFormat.ARGB32),
                 B = new RenderTexture(res, res, 24, RenderTextureFormat.ARGB32),
@@ -309,136 +311,217 @@ namespace LivePortals
             rig.F.filterMode = FilterMode.Point;
             rig.Z.Create(); rig.F.Create(); rig.A.Create();
             rig.DepthCopy.Blit(BuiltinRenderTextureType.Depth, rig.F);
+            return rig;
+        }
 
-            var hidden = new List<Renderer>();
-            var hiddenLights = new List<Light>();
-            var hiddenColliders = new List<Collider>();
-            HideForCapture(portal, hidden, hiddenLights, hiddenColliders);
-            Physics.SyncTransforms(); // so the rays below do not hit the colliders just switched off
-            bool fogOn = RenderSettings.fog;
-            float waterLevel = ZoneSystem.instance != null ? ZoneSystem.instance.m_waterLevel : 30f;
-            var points = new List<RawPoint>();
+        internal static void DestroyRig(Rig rig)
+        {
+            if (rig == null) return;
+            RenderSettings.fog = rig.FogOn;
+            RenderTexture.active = null;
+            if (rig.Cam != null) rig.Cam.targetTexture = null;
+            if (rig.ColorCam != null) rig.ColorCam.targetTexture = null;
+            Object.Destroy(rig.TexA); Object.Destroy(rig.TexB); Object.Destroy(rig.TexC); Object.Destroy(rig.TexF);
+            foreach (var rt in new[] { rig.Color, rig.A, rig.B, rig.Z, rig.F }) { rt.Release(); Object.Destroy(rt); }
+            rig.DepthCopy.Release();
+            Object.Destroy(rig.Go);
+            Object.Destroy(rig.ColorGo);
+            if (rig.Profile != null) Object.Destroy(rig.Profile);
+        }
+
+        internal static void EnsureProbed(Rig rig, Vector3 pos, Quaternion rot)
+        {
+            if (_method == DepthMethod.Unknown) Probe(rig, pos, rot);
+        }
+
+        // ------------------------------------------------------------------
+        // Reading renders back without waiting for the GPU
+        // ------------------------------------------------------------------
+        private static bool _asyncChecked, _asyncOk, _asyncFlip;
+
+        /// <summary>
+        /// Whether the GPU can hand pixels back asynchronously here, and which way up they come (that differs
+        /// between graphics APIs). Decided once, by comparing with a plain read of the same picture.
+        /// </summary>
+        internal static void CheckAsync(Rig rig, Vector3 pos, Quaternion rot)
+        {
+            if (_asyncChecked) return;
+            _asyncChecked = true;
+            _asyncOk = false;
+            if (!Plugin.AsyncReadback.Value || !SystemInfo.supportsAsyncGPUReadback)
+            {
+                Plugin.Log.LogInfo("LivePortals: async GPU readback " + (Plugin.AsyncReadback.Value ? "is not supported here" : "is off") + "; captures wait for the GPU instead.");
+                return;
+            }
             try
             {
-                if (_method == DepthMethod.Unknown) Probe(rig, centre + rot * offsets[0] + rot * Vector3.forward * 0.15f, rot);
-                bool rays = _method == DepthMethod.Rays || _method == DepthMethod.Unknown;
+                var cam = rig.ColorCam;
+                cam.transform.SetPositionAndRotation(pos, rot);
+                cam.targetTexture = rig.Color; cam.Render(); cam.targetTexture = null;
+                var req = AsyncGPUReadback.Request(rig.Color, 0, TextureFormat.RGBA32);
+                RenderTexture.active = rig.Color;
+                rig.TexC.ReadPixels(new Rect(0, 0, rig.Res, rig.Res), 0, 0, false);
+                RenderTexture.active = null;
+                var sync = rig.TexC.GetPixels32();
+                req.WaitForCompletion();
+                if (req.hasError) { Plugin.Log.LogInfo("LivePortals: async GPU readback failed its check; captures wait for the GPU instead."); return; }
+                var px = req.GetData<Color32>().ToArray();
+                if (px.Length != sync.Length) { Plugin.Log.LogInfo($"LivePortals: async GPU readback returned {px.Length} pixels for {sync.Length}; captures wait for the GPU instead."); return; }
+                int res = rig.Res;
+                long same = 0, flipped = 0, samples = 0;
+                for (int y = 0; y < res; y += 3)
+                    for (int x = 0; x < res; x += 3)
+                    {
+                        Color32 s0 = sync[y * res + x];
+                        same += Diff(s0, px[y * res + x]);
+                        flipped += Diff(s0, px[(res - 1 - y) * res + x]);
+                        samples++;
+                    }
+                _asyncFlip = flipped < same * 0.5f;
+                long best = _asyncFlip ? flipped : same;
+                _asyncOk = best < samples * 12;
+                Plugin.Log.LogInfo($"LivePortals: async GPU readback check: {(_asyncOk ? "usable" : "does NOT match a plain read; captures wait for the GPU instead")}, {(_asyncFlip ? "flipped" : "same way up")}; mean difference per pixel same {same / (float)samples:0.0}, flipped {flipped / (float)samples:0.0}.");
+            }
+            catch (System.Exception e)
+            {
+                _asyncOk = false;
+                Plugin.Log.LogInfo("LivePortals: async GPU readback check threw (" + e.Message + "); captures wait for the GPU instead.");
+            }
+        }
 
-                int clearMask = SolidMask(out _);
-                for (int k = 0; k < offsets.Length; k++)
+        private static int Diff(Color32 a, Color32 b) => Mathf.Abs(a.r - b.r) + Mathf.Abs(a.g - b.g) + Mathf.Abs(a.b - b.b);
+
+        /// <summary>
+        /// The renders of one face, issued now: colour with the game's fog; a black/white clear pair with fog off
+        /// whose differing pixels were never drawn (sky); and the GPU's own depth. Their pixels reach f later
+        /// (or now, without async readback). The caller has hidden the player, the portal and the windows.
+        /// </summary>
+        internal static void RenderFace(Rig rig, FaceRaw f)
+        {
+            var cam = rig.Cam; var colorCam = rig.ColorCam;
+            cam.transform.SetPositionAndRotation(f.Pos, f.Rot);
+            colorCam.transform.SetPositionAndRotation(f.Pos, f.Rot);
+            f.Flip = _asyncOk && _asyncFlip;
+            try
+            {
+                // 1. Colour, with the game's fog as it is right now.
+                RenderSettings.fog = rig.FogOn;
+                cam.allowHDR = rig.Hdr; cam.allowMSAA = rig.Msaa;
+                cam.depthTextureMode = DepthTextureMode.None;
+                colorCam.backgroundColor = RenderSettings.fogColor;
+                colorCam.targetTexture = rig.Color; colorCam.Render(); colorCam.targetTexture = null;
+                Read(rig.Color, rig.TexC, rig.Res, f, 0);
+                // 2. Sky mask: no fog, cleared black and then white. Where the two differ, nothing (or only
+                //    something thin, like the haze dome the game hangs over the whole sky) was drawn, and if
+                //    the depth buffer is empty there too it is sky. 0.7.1/0.8.0 tested "stayed black" instead
+                //    and found no sky at all, because of that dome. The depth pass is a render of its own:
+                //    its colour output is not usable (0.7.0 took the mask from it).
+                RenderSettings.fog = false;
+                cam.backgroundColor = Color.black;
+                cam.targetTexture = rig.A; cam.Render(); cam.targetTexture = null;
+                Read(rig.A, rig.TexA, rig.Res, f, 1);
+                cam.backgroundColor = Color.white;
+                cam.targetTexture = rig.B; cam.Render(); cam.targetTexture = null;
+                Read(rig.B, rig.TexB, rig.Res, f, 2);
+                // 3. Depth per pixel.
+                if (f.NeedGpu) { RenderDepthPass(rig, _method); Read(rig.F, rig.TexF, rig.Res, f, 3); }
+            }
+            finally { RenderSettings.fog = rig.FogOn; }
+        }
+
+        /// <summary>Start reading a render target back into slot (0 colour, 1/2 sky pair, 3 depth). Without async readback it is read now.</summary>
+        private static void Read(RenderTexture rt, Texture2D into, int res, FaceRaw f, int slot)
+        {
+            if (_asyncOk)
+            {
+                f.Req[slot] = AsyncGPUReadback.Request(rt, 0, slot == 3 ? TextureFormat.RFloat : TextureFormat.RGBA32);
+                f.Issued[slot] = true;
+                return;
+            }
+            RenderTexture.active = rt;
+            into.ReadPixels(new Rect(0, 0, res, res), 0, 0, false);
+            RenderTexture.active = null;
+            if (slot == 3) f.Gpu = into.GetPixelData<float>(0).ToArray(); else f.Set(slot, into.GetPixels32());
+        }
+
+        /// <summary>
+        /// Any thread: the sky mask from the black/white pair, the colour with its alpha and exposure, and the
+        /// metric depth. Depth stays null without GPU depth (the caller fills it from rays). Face 0 also leaves
+        /// its statistics in the point.
+        /// </summary>
+        internal static RawFace Compose(FaceRaw f, RawPoint pt, float far, float exposure, float waterLevel)
+        {
+            int res = pt.Res; float depthRange = pt.DepthRange;
+            if (f.Flip)
+            {
+                FlipRows(f.RawCol, res); FlipRows(f.SkyA, res); FlipRows(f.SkyB, res);
+                if (f.Gpu != null) FlipRows(f.Gpu, res);
+                f.Flip = false;
+            }
+            var col = f.RawCol; var skyA = f.SkyA; var skyB = f.SkyB; var gpu = f.Gpu;
+            bool rays = gpu == null;
+            long lumSum = 0, rSum = 0, gSum = 0, bSum = 0; int count = 0;
+            var sky = new bool[res * res];
+            int diffSky = 0;
+            for (int p = 0; p < col.Length; p++)
+            {
+                Color32 a = skyA[p], b = skyB[p];
+                bool isSky = Mathf.Abs(a.r - b.r) + Mathf.Abs(a.g - b.g) + Mathf.Abs(a.b - b.b) > 60;
+                if (isSky && f.Face == 0) diffSky++;
+                if (isSky && !rays)
                 {
-                    if (k > 0 && !CaptureSet.FindClearance(centre + rot * Vector3.forward * 0.15f, rot, ref offsets[k], clearMask))
-                    {
-                        Plugin.Log.LogInfo($"LivePortals: viewpoint {offsets[k]} is inside or behind something here, skipped.");
-                        continue;
-                    }
-                    Vector3 pos = centre + rot * offsets[k] + rot * Vector3.forward * 0.15f;
-                    var pt = new RawPoint { Offset = offsets[k], Res = res, Step = step, DepthRange = depthRange, FaceTan = FaceTan };
-                    for (int i = 0; i < 6; i++)
-                    {
-                        if (k > 0 && !CaptureSet.SecondaryFace(i)) continue;
-                        Quaternion faceRot = rot * FaceRotations[i];
-                        cam.transform.SetPositionAndRotation(pos, faceRot);
-                        colorCam.transform.SetPositionAndRotation(pos, faceRot);
-
-                        // 1. Colour, with the game's fog as it is right now.
-                        RenderSettings.fog = fogOn;
-                        cam.allowHDR = rig.Hdr; cam.allowMSAA = rig.Msaa;
-                        cam.depthTextureMode = DepthTextureMode.None;
-                        colorCam.backgroundColor = RenderSettings.fogColor;
-                        RenderTo(colorCam, rig.Color, rig.TexC, res);
-
-                        // 2. Sky mask: no fog, cleared black and then white. Where the two differ, nothing (or only
-                        //    something thin, like the haze dome the game hangs over the whole sky) was drawn, and if
-                        //    the depth buffer is empty there too it is sky. 0.7.1/0.8.0 tested "stayed black" instead
-                        //    and found no sky at all, because of that dome. The depth pass is a render of its own:
-                        //    its colour output is not usable (0.7.0 took the mask from it).
-                        RenderSettings.fog = false;
-                        cam.backgroundColor = Color.black;
-                        RenderTo(cam, rig.A, rig.TexA, res);
-                        var skyA = rig.TexA.GetPixels32();
-                        cam.backgroundColor = Color.white;
-                        RenderTo(cam, rig.B, rig.TexB, res);
-                        var skyB = rig.TexB.GetPixels32();
-                        float[] gpu = rays ? null : RenderDepth(rig, _method);
-
-                        var col = rig.TexC.GetPixels32();
-                        float exposure = Plugin.CaptureExposure.Value;
-                        long lumSum = 0, rSum = 0, gSum = 0, bSum = 0; int count = 0;
-                        var sky = new bool[res * res];
-                        int diffSky = 0;
-                        for (int p = 0; p < col.Length; p++)
-                        {
-                            Color32 a = skyA[p], b = skyB[p];
-                            bool isSky = Mathf.Abs(a.r - b.r) + Mathf.Abs(a.g - b.g) + Mathf.Abs(a.b - b.b) > 60;
-                            if (isSky && i == 0) diffSky++;
-                            if (isSky && !rays)
-                            {
-                                // Nothing solid within the depth range behind it. (0.8.1 asked for an empty depth
-                                // buffer and again found no sky: whatever the game draws up there has depth.)
-                                int y = p / res;
-                                isSky = Linear(gpu[(_flipY ? res - 1 - y : y) * res + p % res], _reversedZ, rig.Far) >= depthRange;
-                            }
-                            Color32 c = col[p];
-                            if (isSky)
-                            {
-                                c.a = 0; // never drawn: sky. The fog colour stays in rgb so cut-out edges do not fringe dark.
-                                col[p] = c;
-                                sky[p] = true;
-                                continue;
-                            }
-                            if (exposure != 1f)
-                            {
-                                c.r = (byte)Mathf.Clamp(Mathf.RoundToInt(c.r * exposure), 0, 255);
-                                c.g = (byte)Mathf.Clamp(Mathf.RoundToInt(c.g * exposure), 0, 255);
-                                c.b = (byte)Mathf.Clamp(Mathf.RoundToInt(c.b * exposure), 0, 255);
-                            }
-                            c.a = 255;
-                            col[p] = c;
-                            if (i == 0 && (p & 15) == 0) { lumSum += (c.r * 54 + c.g * 183 + c.b * 19) >> 8; rSum += c.r; gSum += c.g; bSum += c.b; count++; }
-                        }
-
-                        // 3. Depth per pixel in metres along the face's axis.
-                        float[] depth = rays
-                            ? RayDepthPerPixel(pos, faceRot, sky, res, step, depthRange)
-                            : MetricDepth(gpu, sky, res, rig.Far, depthRange, pos, faceRot, waterLevel);
-                        pt.Faces[i] = new RawFace { Col = col, Sky = sky, Depth = depth };
-                        if (i == 0)
-                        {
-                            int skyCount = 0;
-                            var sample = new List<float>();
-                            for (int p = 0; p < sky.Length; p += 7) { if (sky[p]) skyCount++; else sample.Add(depth[p]); }
-                            sample.Sort();
-                            pt.SkyFraction = skyCount * 7f / sky.Length;
-                            pt.DiffFraction = diffSky / (float)sky.Length;
-                            pt.MedianDepth = sample.Count > 0 ? sample[sample.Count / 2] : 0f;
-                        }
-                        if (i == 0 && count > 0)
-                        {
-                            pt.AverageLuminance = lumSum / (255f * count);
-                            pt.AverageColor = new Color(rSum / (255f * count), gSum / (255f * count), bSum / (255f * count), 1f);
-                        }
-                    }
-                    Lighting.Sample(out pt.Sun, out pt.Ambient, out pt.Fog, out pt.DayFraction);
-                    points.Add(pt);
+                    // Nothing solid within the depth range behind it. (0.8.1 asked for an empty depth
+                    // buffer and again found no sky: whatever the game draws up there has depth.)
+                    int y = p / res;
+                    isSky = Linear(gpu[(_flipY ? res - 1 - y : y) * res + p % res], _reversedZ, far) >= depthRange;
+                }
+                Color32 c = col[p];
+                if (isSky)
+                {
+                    c.a = 0; // never drawn: sky. The fog colour stays in rgb so cut-out edges do not fringe dark.
+                    col[p] = c;
+                    sky[p] = true;
+                    continue;
+                }
+                if (exposure != 1f)
+                {
+                    c.r = (byte)Mathf.Clamp(Mathf.RoundToInt(c.r * exposure), 0, 255);
+                    c.g = (byte)Mathf.Clamp(Mathf.RoundToInt(c.g * exposure), 0, 255);
+                    c.b = (byte)Mathf.Clamp(Mathf.RoundToInt(c.b * exposure), 0, 255);
+                }
+                c.a = 255;
+                col[p] = c;
+                if (f.Face == 0 && (p & 15) == 0) { lumSum += (c.r * 54 + c.g * 183 + c.b * 19) >> 8; rSum += c.r; gSum += c.g; bSum += c.b; count++; }
+            }
+            var raw = new RawFace { Col = col, Sky = sky, Depth = rays ? null : MetricDepth(gpu, sky, res, far, depthRange, f.Pos, f.Rot, waterLevel) };
+            if (f.Face == 0)
+            {
+                int skyCount = 0;
+                var sample = new List<float>();
+                for (int p = 0; p < sky.Length; p += 7) { if (sky[p]) skyCount++; else if (raw.Depth != null) sample.Add(raw.Depth[p]); }
+                sample.Sort();
+                pt.SkyFraction = skyCount * 7f / sky.Length;
+                pt.DiffFraction = diffSky / (float)sky.Length;
+                pt.MedianDepth = sample.Count > 0 ? sample[sample.Count / 2] : 0f;
+                if (count > 0)
+                {
+                    pt.AverageLuminance = lumSum / (255f * count);
+                    pt.AverageColor = new Color(rSum / (255f * count), gSum / (255f * count), bSum / (255f * count), 1f);
                 }
             }
-            finally
+            return raw;
+        }
+
+        private static void FlipRows<T>(T[] a, int res)
+        {
+            var row = new T[res];
+            for (int y = 0; y < res / 2; y++)
             {
-                RenderSettings.fog = fogOn;
-                foreach (var r in hidden) if (r != null) r.enabled = true;
-                foreach (var l in hiddenLights) if (l != null) l.enabled = true;
-                foreach (var c in hiddenColliders) if (c != null) c.enabled = true;
-                PortalWindow.SetAllVisible(true);
-                RenderTexture.active = null;
-                cam.targetTexture = null;
-                Object.Destroy(rig.TexA); Object.Destroy(rig.TexB); Object.Destroy(rig.TexC); Object.Destroy(rig.TexF);
-                foreach (var rt in new[] { rig.Color, rig.A, rig.B, rig.Z, rig.F }) { rt.Release(); Object.Destroy(rt); }
-                rig.DepthCopy.Release();
-                Object.Destroy(go);
-                Object.Destroy(colorGo);
-                if (profile != null) Object.Destroy(profile);
+                int o = y * res, q = (res - 1 - y) * res;
+                System.Array.Copy(a, o, row, 0, res);
+                System.Array.Copy(a, q, a, o, res);
+                System.Array.Copy(row, 0, a, q, res);
             }
-            return points;
         }
 
         // ------------------------------------------------------------------
@@ -451,7 +534,7 @@ namespace LivePortals
         /// and copy that. Both need no shader of ours. Returns raw device depth; the colour of this render is not
         /// to be trusted (with ZBuffer it comes out black in this game).
         /// </summary>
-        private static float[] RenderDepth(Rig rig, DepthMethod method)
+        private static void RenderDepthPass(Rig rig, DepthMethod method)
         {
             var cam = rig.Cam;
             cam.allowHDR = false; cam.allowMSAA = false; // straight into the target, no intermediate buffer
@@ -481,6 +564,12 @@ namespace LivePortals
                 cam.RemoveCommandBuffer(CameraEvent.AfterEverything, rig.DepthCopy);
                 cam.depthTextureMode = DepthTextureMode.None;
             }
+        }
+
+        /// <summary>A depth render read back on the spot (the probe).</summary>
+        private static float[] RenderDepth(Rig rig, DepthMethod method)
+        {
+            RenderDepthPass(rig, method);
             RenderTexture.active = rig.F;
             rig.TexF.ReadPixels(new Rect(0, 0, rig.Res, rig.Res), 0, 0, false);
             RenderTexture.active = null;
@@ -599,7 +688,7 @@ namespace LivePortals
         // ------------------------------------------------------------------
         // Ray depth (fallback)
         // ------------------------------------------------------------------
-        private static int SolidMask(out int waterMask)
+        internal static int SolidMask(out int waterMask)
         {
             int solidMask = ~((1 << Plugin.FaceLayer) | (1 << 2)); // 2 = Ignore Raycast
             int waterLayer = LayerMask.NameToLayer("Water");
@@ -611,7 +700,7 @@ namespace LivePortals
         /// One physics ray per grid node, spread to the pixels around it. Things without colliders (foliage, grass)
         /// take the nearest hit below them in the same column. Coarse; only used when no GPU depth read works.
         /// </summary>
-        private static float[] RayDepthPerPixel(Vector3 origin, Quaternion faceRot, bool[] sky, int res, int step, float range)
+        internal static float[] RayDepthPerPixel(Vector3 origin, Quaternion faceRot, bool[] sky, int res, int step, float range)
         {
             int n = res / step + 1;
             var node = new float[n * n];
@@ -658,18 +747,35 @@ namespace LivePortals
 
         private static bool _loggedLook;
 
-        private static void RenderTo(Camera cam, RenderTexture rt, Texture2D into, int res)
+        /// <summary>What a capture must not see, switched off for the frames it renders in and back on right after, so the game's own frame never shows the gap.</summary>
+        internal class Hidden
         {
-            cam.targetTexture = rt;
-            cam.Render();
-            cam.targetTexture = null;
-            RenderTexture.active = rt;
-            into.ReadPixels(new Rect(0, 0, res, res), 0, 0, false);
-            RenderTexture.active = null;
+            public readonly List<Renderer> Renderers = new List<Renderer>();
+            public readonly List<Light> Lights = new List<Light>();
+            public readonly List<Collider> Colliders = new List<Collider>();
+
+            public void Hide()
+            {
+                foreach (var r in Renderers) if (r != null) r.enabled = false;
+                foreach (var l in Lights) if (l != null) l.enabled = false;
+                foreach (var c in Colliders) if (c != null) c.enabled = false;
+                PortalWindow.SetAllVisible(false);
+            }
+
+            public void Show()
+            {
+                foreach (var r in Renderers) if (r != null) r.enabled = true;
+                foreach (var l in Lights) if (l != null) l.enabled = true;
+                foreach (var c in Colliders) if (c != null) c.enabled = true;
+                PortalWindow.SetAllVisible(true);
+            }
         }
 
-        private static void HideForCapture(TeleportWorld portal, List<Renderer> hidden, List<Light> hiddenLights, List<Collider> hiddenColliders)
+        /// <summary>Collect and hide everything a capture must not see. Show() puts it back.</summary>
+        internal static Hidden HideForCapture(TeleportWorld portal)
         {
+            var h = new Hidden();
+            var hidden = h.Renderers; var hiddenLights = h.Lights; var hiddenColliders = h.Colliders;
             var lp = Player.m_localPlayer;
             if (lp != null)
             {
@@ -702,6 +808,7 @@ namespace LivePortals
                 hidden.Add(ps);
             }
             PortalWindow.SetAllVisible(false);
+            return h;
         }
     }
 }

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.4
+
+- Window redraws cost about a third of what they did. The window camera now renders on the forward path (the self-test tries it first), in one pass instead of two, with no shadow maps and no occlusion culling. The skirts and far shell draw unlit without depth writes, which gives the same picture the second pass did.
+- Redraw cadence: the nearest window follows the eye every frame only within 6 m; beyond that 30 times a second, other windows 20. The window texture is sized to what the pane covers on screen.
+- Captures no longer freeze the game (1.3 s per portal trip before). Two faces are rendered per frame, their pixels are read back from the GPU asynchronously, and the sky mask, depth, layering and encoding happen on a low-priority thread as they arrive. Whatever is hidden for the capture is hidden only inside those frames, so nothing flickers on screen.
+- Portals register themselves; the mod no longer scans every object in the scene twice a second. Frustum checks no longer allocate.
+- `PerfLog` adds one line per 10 s with the total cost of all windows and the game's frame rate.
+
 ## 0.9.3
 
 - No more freeze on the first approach to a portal after logging in. The capture used to be read, decoded and turned into geometry in a single frame (up to forty PNGs and a hundred meshes). It is now decoded on a worker thread, uploaded a few pieces per frame within a 4 ms budget shared by all windows, and the loading starts 15 m before the window comes into view.

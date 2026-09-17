@@ -275,6 +275,24 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     visible range so the load is done before the dissolve-in. Viewpoint upgrade loads only the missing points
     (`CaptureSet.Append`), downgrade is `Trim(1)`. `GrassSet.Read` (any thread) + `Resolve()` (main). **Untested**
     in game.
+28. 0.9.4, Max: "push extra hard to super optimize this, it should feel like vanilla performance". Where the time
+    went: the window camera was a copy of the sky camera, so DeferredShading (G-buffer + lighting + shadow cascades
+    per pass), two passes per redraw; captures did 21 faces x 4 renders + 84 `ReadPixels` in one frame (1.3 s, from
+    the log); `FindObjectsByType<TeleportWorld>` twice a second. Now: `WindowMaterial` self-test tries the forward
+    path first (`Setup.Forward`), `ApplyTo` turns occlusion culling off; `PortalWindow.RenderNow` is one pass with
+    `QualitySettings.shadowDistance = 0` and fog off around `_cam.Render()`; skirts/shell use `MakeUnder`
+    (Sprites/Default, queue AlphaTest-20/-15, no ZWrite) so the reliefs always paint over them (what the depth clear
+    between the passes did); `ShouldRender` cadence 0/30/20 Hz by distance and rank, non-alloc frustum planes;
+    `UpdateResolutionTier` sizes the RT to the pane's on-screen height with 1.4x steps and hysteresis; grass drawn
+    only within SecondaryViewpointRange+4. Captures: `CaptureRun` (new file) renders `CaptureFacesPerFrame` faces
+    per frame with `AsyncGPUReadback` (`Capture.CheckAsync` compares against a plain read once per session and
+    detects a vertical flip; falls back to ReadPixels), `Capture.Compose` does the per-pixel work on a BelowNormal
+    thread that also layers and saves each face as it arrives; `Capture.Hidden` hides the player/portal/windows
+    only inside the render frames. Portals come from a postfix on `TeleportWorld.Awake` (`Plugin.AllPortals`).
+    `PerfLog` now also logs a global line. **Untested** in game: watch for (a) the self-test log line saying
+    "forward path" (if it still says deferred, the forward pass failed the test and nothing is gained there),
+    (b) the async readback check line, (c) captures looking the same as before (flip detection), (d) skirts now
+    blended rather than cut out.
 25. Not yet done: publish to Hexium (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

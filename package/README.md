@@ -42,8 +42,11 @@ Nothing is needed on the server and nothing changes for players without the mod.
 | `GrassGap` | 0.75 m | Grass this close to the far portal's centre is not drawn in the window |
 | `CaptureExposure` | 1 | Brightness of captures |
 | `PortalLight` / `PortalLightRange` | 1 / 8 m | The spill light; 0 turns it off |
-| `MaxWindows` | 3 | Most windows drawn at once |
+| `MaxWindows` / `MaxRendersPerFrame` | 8 / 2 | Most windows kept loaded; most windows redrawn in one frame (the nearest first) |
+| `SecondaryViewpointRange` | 12 m | Closer than this a window uses all its viewpoints and shows the far side's grass |
+| `CaptureFacesPerFrame` / `AsyncReadback` | 2 / on | How a capture is spread over frames; reading the GPU back without waiting for it |
 | `RenderEveryNFrames` | 1 | Redraw windows every N frames |
+| `PerfLog` | off | Log what the windows cost every 10 s |
 
 Captures live in `BepInEx\config\LivePortals\<world>\`: per portal a text file, and per capture point six background PNGs, up to six foreground PNGs and a file of depth grids. Delete them to reset.
 

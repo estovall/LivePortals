@@ -67,7 +67,11 @@ namespace LivePortals
         internal float EyeDist => _eyeDist;
         private Vector3 _lastEye = new Vector3(float.NaN, 0f, 0f);
         private float _lastAlpha = -1f, _lastRenderTime = -10f, _eyeDist, _alphaNow;
-        private int _loadedPoints, _rtTier = -1;
+        private int _loadedPoints;
+        private float _paneW = 2.7f;
+        private static readonly Plane[] _planes = new Plane[6];
+        internal static int PerfRenders;
+        internal static double PerfMs;
         private float _reloadTimer;
         // What RenderNow needs from the last Update.
         private Vector3 _pe, _anchor0;
@@ -195,6 +199,7 @@ namespace LivePortals
             Vector3 up = rA * Vector3.up, n = rA * Vector3.forward, right = rA * Vector3.right;
             var shape = PortalShape.Of(_tw);
             float w = shape.Width, h = shape.Height;
+            _paneW = w;
             Vector3 c = shape.Centre;
             _pane.transform.SetPositionAndRotation(c, rA);
             if (!_loggedGeometry)
@@ -289,50 +294,42 @@ namespace LivePortals
             Vector3 pe = _pe, anchor0 = _anchor0; Quaternion rB = _rB; ZDOID target = _target;
             float near = _near, far = _far, l = _l, r = _r, b = _b, t = _t; bool glass = _glass, realFront = _realFront;
             _lastEye = pe; _lastAlpha = _alphaNow; _lastRenderTime = Time.time;
-            UpdateResolutionTier();
+            var gc = GameCamera.instance;
+            UpdateResolutionTier(gc != null ? gc.m_camera : null);
+            _sw.Restart();
+            bool dump = _dumped != DumpRequest;
+            // One camera pass: the sky, then the guesses (skirts and far shell: unlit, no depth writes), then the
+            // reliefs over them with depth. The capture meshes exist only while this camera renders: no other
+            // camera ever sees them. The far side's grass is real geometry, drawn only close up where tufts can
+            // be told apart.
+            if (_eyeDist <= Plugin.SecondaryViewpointRange.Value + 4f) _set.Grass?.Draw(_cam, Matrix4x4.TRS(anchor0, rB, Vector3.one));
+            SetReliefsEnabled(true);
+            // No scene fog on the reliefs: the captures carry the far side's own fog, and the unlit shader would
+            // add the viewer's on top (in the viewer's biome colour: a pink forest seen from the plains). And no
+            // shadow maps: nothing here receives them, and rendering the cascades is the dearest part of a pass.
+            bool fog = RenderSettings.fog;
+            float shadows = QualitySettings.shadowDistance;
+            RenderSettings.fog = false;
+            QualitySettings.shadowDistance = 0f;
+            try { _cam.Render(); }
+            finally
             {
-                _sw.Restart();
-                // The capture meshes exist only while this camera renders: no other camera ever sees them.
-                // Pass one: the sky, then the skirts. Pass two keeps that picture, clears depth, and draws the
-                // reliefs over it, so a skirt (which spans all the depth between two surfaces) never hides them.
-                bool dump = _dumped != DumpRequest;
-                // The far side's grass, as geometry, where the far ring's frame lands in front of the viewer.
-                _set.Grass?.Draw(_cam, Matrix4x4.TRS(anchor0, rB, Vector3.one));
-                SetReliefsEnabled(true, true);
-                _cam.Render();
-                SetReliefsEnabled(true, false);
-                if (dump) SaveWindow("under");
-                var clear = _cam.clearFlags;
-                int mask = _cam.cullingMask;
-                _cam.clearFlags = CameraClearFlags.Depth;
-                _cam.cullingMask = 1 << Plugin.FaceLayer;
-                SetReliefsEnabled(false, true);
-                // No scene fog on the reliefs: the captures carry the far side's own fog, and the unlit shader would
-                // add the viewer's on top (in the viewer's biome colour: a pink forest seen from the plains).
-                bool fog = RenderSettings.fog;
-                RenderSettings.fog = false;
-                _cam.Render();
                 RenderSettings.fog = fog;
-                SetReliefsEnabled(false, false);
-                _cam.clearFlags = clear;
-                _cam.cullingMask = mask;
-                _sw.Stop();
-                _msAccum += _sw.Elapsed.TotalMilliseconds; _renders++;
-                if (dump)
-                {
-                    _dumped = DumpRequest;
-                    SaveWindow("final");
-                    // The eye in the primary relief's own frame: what tools/LayerTest needs (EYES=x,y,z) to redraw this view.
-                    Vector3 eyeLocal = Quaternion.Inverse(rB) * (pe - (anchor0 + rB * CaptureForward));
-                    Plugin.Log.LogInfo($"LivePortals dump: window {Storage.Key(_nview.GetZDO().m_uid)} shows {Storage.Key(target)} ({_reliefs.Count} viewpoints), glass {glass}, front {realFront}, EYES={eyeLocal.x:0.###},{eyeLocal.y:0.###},{eyeLocal.z:0.###} near {near:0.###} far {far:0} frustum l {l:0.####} r {r:0.####} b {b:0.####} t {t:0.####} hdr {_cam.allowHDR} path {_cam.actualRenderingPath} depthBits {_rt.depth} format {_rt.format} material {WindowMaterial.Summary} pane {(_paneSolid ? "solid" : "sprite")} tint {Lighting.Tint(_set.Primary, Plugin.ToneMatch.Value)}");
-                }
+                QualitySettings.shadowDistance = shadows;
+                SetReliefsEnabled(false);
+            }
+            _sw.Stop();
+            _msAccum += _sw.Elapsed.TotalMilliseconds; _renders++;
+            PerfMs += _sw.Elapsed.TotalMilliseconds; PerfRenders++;
+            if (dump)
+            {
+                _dumped = DumpRequest;
+                SaveWindow("final");
+                // The eye in the primary relief's own frame: what tools/LayerTest needs (EYES=x,y,z) to redraw this view.
+                Vector3 eyeLocal = Quaternion.Inverse(rB) * (pe - (anchor0 + rB * CaptureForward));
+                Plugin.Log.LogInfo($"LivePortals dump: window {Storage.Key(_nview.GetZDO().m_uid)} shows {Storage.Key(target)} ({_reliefs.Count} viewpoints), glass {glass}, front {realFront}, EYES={eyeLocal.x:0.###},{eyeLocal.y:0.###},{eyeLocal.z:0.###} near {near:0.###} far {far:0} frustum l {l:0.####} r {r:0.####} b {b:0.####} t {t:0.####} hdr {_cam.allowHDR} path {_cam.actualRenderingPath} depthBits {_rt.depth} format {_rt.format} material {WindowMaterial.Summary} pane {(_paneSolid ? "solid" : "sprite")} tint {Lighting.Tint(_set.Primary, Plugin.ToneMatch.Value)}");
             }
         }
-
-        /// <summary>Numpad 5 bumps this; every visible window then saves what it drew (after the under pass, and the final picture) and logs where the eye was.</summary>
-        internal static int DumpRequest;
-        private int _dumped;
-        internal static readonly Vector3 CaptureForward = new Vector3(0f, 0f, 0.15f);
 
         private void SaveWindow(string tag)
         {
@@ -374,25 +371,35 @@ namespace LivePortals
             catch (System.Exception e) { Plugin.Log.LogWarning("LivePortals: window dump failed: " + e.Message); }
         }
 
+        /// <summary>Numpad 5 bumps this; every visible window then saves what it drew and logs where the eye was.</summary>
+        internal static int DumpRequest;
+        private int _dumped;
+        internal static readonly Vector3 CaptureForward = new Vector3(0f, 0f, 0.15f);
+
         /// <summary>
-        /// A far window covers few pixels on screen: draw it at a fraction of the resolution. Tiers, not a
-        /// continuous scale, so the texture is not recreated every frame.
+        /// The window texture needs only as many texels as the pane covers on screen: a far window is drawn into a
+        /// small one. Steps of about 1.4x with some hysteresis, so the texture is not recreated while the eye hovers
+        /// on a boundary.
         /// </summary>
-        private void UpdateResolutionTier()
+        private void UpdateResolutionTier(Camera main)
         {
-            int tier = _eyeDist <= 8f ? 1 : (_eyeDist <= 20f ? 2 : 3);
-            if (tier == _rtTier || _rt == null) return;
-            _rtTier = tier;
-            int res = Mathf.Max(128, Plugin.WindowResolution.Value / tier);
-            if (_rt.width == res) return;
+            if (_rt == null) return;
+            int max = Mathf.Max(128, Plugin.WindowResolution.Value);
+            float fov = main != null ? main.fieldOfView : 65f;
+            float px = Screen.height * _paneW / Mathf.Max(0.5f, 2f * _eyeDist * Mathf.Tan(fov * 0.5f * Mathf.Deg2Rad));
+            int want = max;
+            while (want > 128 && want / 1.4f >= px) want = Mathf.Max(128, (Mathf.RoundToInt(want / 1.4f) + 15) / 16 * 16);
+            int cur = _rt.width;
+            if (want == cur) return;
+            if (want > cur ? px < cur * 1.08f : px > want * 0.92f) return;
             _rt.Release();
-            _rt.width = res; _rt.height = res;
+            _rt.width = want; _rt.height = want;
             _rt.Create();
             _cam.targetTexture = _rt;
             WindowMaterial.SetPaneTexture(_paneMat, _rt);
         }
 
-        private void SetReliefsEnabled(bool under, bool on)
+        private void SetReliefsEnabled(bool on)
         {
             // Secondary viewpoints only matter close up, where you look around near things; from farther away the
             // primary alone is indistinguishable and a third of the geometry.
@@ -401,7 +408,8 @@ namespace LivePortals
             {
                 bool use = on && (k == 0 || secondaries);
                 var rl = _reliefs[k];
-                foreach (var r in under ? rl.Under : rl.Renderers) r.enabled = use;
+                foreach (var r in rl.Under) r.enabled = use;
+                foreach (var r in rl.Renderers) r.enabled = use;
             }
         }
 
@@ -414,17 +422,27 @@ namespace LivePortals
         private bool ShouldRender(Camera main, Vector3 pe, float alpha, bool dump)
         {
             if (dump) return true;
-            int stride = Mathf.Max(1, Plugin.RenderEveryNFrames.Value) * (Rank == 0 ? 1 : 3);
-            if ((_frame++ % stride) != 0) { _skips++; return false; }
-            if (_paneRenderer != null && !GeometryUtility.TestPlanesAABB(GeometryUtility.CalculateFrustumPlanes(main), _paneRenderer.bounds)) { _skips++; return false; }
+            int stride = Mathf.Max(1, Plugin.RenderEveryNFrames.Value);
+            if (stride > 1 && (_frame++ % stride) != 0) { _skips++; return false; }
+            if (_paneRenderer != null)
+            {
+                GeometryUtility.CalculateFrustumPlanes(main, _planes);
+                if (!GeometryUtility.TestPlanesAABB(_planes, _paneRenderer.bounds)) { _skips++; return false; }
+            }
+            float since = Time.time - _lastRenderTime;
             if (!Plugin.RenderWhenStill.Value)
             {
                 // Far windows need a new picture only after a bigger step: the parallax of 5 mm per metre of
                 // distance is below a pixel.
                 float thr = Mathf.Max(0.02f, _eyeDist * 0.005f);
                 bool moved = float.IsNaN(_lastEye.x) || (pe - _lastEye).sqrMagnitude > thr * thr || Mathf.Abs(alpha - _lastAlpha) > 0.002f;
-                if (!moved && Time.time - _lastRenderTime < 0.5f) { _skips++; return false; }
+                if (!moved && since < 0.5f) { _skips++; return false; }
             }
+            // Cadence: right at the portal the picture follows the eye every frame. Farther out, where a frame's
+            // step of the eye shifts it by less than a pixel, thirty redraws a second look the same, and the
+            // windows beyond the nearest get twenty.
+            float interval = Rank == 0 ? (_eyeDist <= 6f ? 0f : 1f / 30f) : 1f / 20f;
+            if (since < interval) { _skips++; return false; }
             if (Plugin.PerfLog.Value && Time.time - _perfLogTime > 10f)
             {
                 if (_renders > 0)
@@ -579,7 +597,7 @@ namespace LivePortals
                     // (0.8.6 to 0.8.10 used a blurred copy here. It bled the colours of near things into the fill and
                     // showed its coarse texels as a grid; dark, blade-shaped fill around grass was the result.)
                     Texture soft = cap.Faces[i];
-                    AddLayer(rl, f.transform, "Skirt", cap.Skirt[i], soft, true, Layers.CutoffAll, 0);
+                    AddLayer(rl, f.transform, "Skirt", cap.Skirt[i], soft, true, Layers.CutoffAll, 5);
                     // The far shell, all around: whatever was at least ShellMinDepth away, by direction alone. It is
                     // what shows wherever no relief covers a view ray. (Near things are left out of it: by direction
                     // alone they would land in the wrong place, as copies against the sky.)
@@ -622,7 +640,7 @@ namespace LivePortals
             go.transform.SetParent(parent, false);
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
             var mr = go.AddComponent<MeshRenderer>();
-            var mat = WindowMaterial.Make(tex, cutoff, order);
+            var mat = under ? WindowMaterial.MakeUnder(tex, order) : WindowMaterial.Make(tex, cutoff, order);
             mr.sharedMaterial = mat;
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             mr.receiveShadows = false;

@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "LivePortals";
-        public const string VERSION = "0.9.3";
+        public const string VERSION = "0.9.4";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -57,6 +57,8 @@ namespace LivePortals
         internal static ConfigEntry<bool> CaptureOnArrival;
         internal static ConfigEntry<float> DepartureDelay;
         internal static ConfigEntry<float> ArrivalDelay;
+        internal static ConfigEntry<int> CaptureFacesPerFrame;
+        internal static ConfigEntry<bool> AsyncReadback;
         internal static ConfigEntry<bool> LiveSky;
         internal static ConfigEntry<float> ToneMatch;
         internal static ConfigEntry<float> CaptureExposure;
@@ -77,6 +79,22 @@ namespace LivePortals
         internal const int FaceLayer = 31;
 
         private float _scanTimer;
+        internal static readonly List<TeleportWorld> Portals = new List<TeleportWorld>();
+        private static bool _portalsTracked;
+        private static TeleportWorld[] _scanned = new TeleportWorld[0];
+        private static float _scannedAt = -100f;
+
+        /// <summary>Every portal in the scene: the registered ones, or (if that could not be patched) a scan at most once a second.</summary>
+        internal static IEnumerable<TeleportWorld> AllPortals()
+        {
+            if (_portalsTracked)
+            {
+                for (int i = Portals.Count - 1; i >= 0; i--) if (Portals[i] == null) Portals.RemoveAt(i);
+                return Portals;
+            }
+            if (Time.time - _scannedAt > 1f) { _scannedAt = Time.time; _scanned = UnityEngine.Object.FindObjectsByType<TeleportWorld>(FindObjectsSortMode.None); }
+            return _scanned;
+        }
         private readonly List<TeleportWorld> _scan = new List<TeleportWorld>();
 
         private void Awake()
@@ -155,6 +173,11 @@ namespace LivePortals
             ArrivalDelay = Config.Bind("3. Capture", "ArrivalDelay", 0.15f,
                 new ConfigDescription("Seconds after arrival before the capture, to let the area finish appearing while the screen is still dark.",
                     new AcceptableValueRange<float>(0f, 2f)));
+            CaptureFacesPerFrame = Config.Bind("3. Capture", "CaptureFacesPerFrame", 2,
+                new ConfigDescription("Cube faces rendered per frame during a capture (four renders each). Fewer = smoother frames, more frames for the capture, and things that move can differ between faces.",
+                    new AcceptableValueRange<int>(1, 24)));
+            AsyncReadback = Config.Bind("3. Capture", "AsyncReadback", true,
+                "Read the capture's pixels back from the GPU without waiting for it (checked against a plain read once per session; falls back by itself if it does not match).");
             LiveSky = Config.Bind("4. Look", "LiveSky", true, "Draw the current sky behind the capture where the capture saw sky, so day and night through the window follow the clock.");
             ToneMatch = Config.Bind("4. Look", "ToneMatch", 1f,
                 new ConfigDescription("How strongly the capture's brightness and colour follow the current sun, ambient and fog compared with when it was taken. 0 = show it as captured.",
@@ -192,6 +215,10 @@ namespace LivePortals
 
             _harmony = new Harmony(GUID);
             _harmony.PatchAll(typeof(Patches));
+            // Portals register themselves as they appear, so no scan of every object in the scene is needed.
+            var awake = AccessTools.Method(typeof(TeleportWorld), "Awake");
+            if (awake != null) { _harmony.Patch(awake, postfix: new HarmonyMethod(typeof(Patches), nameof(Patches.TeleportWorld_Awake))); _portalsTracked = true; }
+            else Log.LogWarning("LivePortals: TeleportWorld.Awake not found; portals are found by scanning the scene instead.");
             Log.LogInfo($"LivePortals {VERSION} loaded.");
         }
 
@@ -220,7 +247,7 @@ namespace LivePortals
 
             _scan.Clear();
             Vector3 p = player.transform.position;
-            foreach (var tw in UnityEngine.Object.FindObjectsByType<TeleportWorld>(FindObjectsSortMode.None))
+            foreach (var tw in AllPortals())
             {
                 if (tw == null || !tw.isActiveAndEnabled) continue;
                 // The window exists a little farther out than it is seen, so its capture is loaded by the time it dissolves in.
@@ -248,9 +275,17 @@ namespace LivePortals
         // ------------------------------------------------------------------
         private static readonly List<PortalWindow> _wanting = new List<PortalWindow>();
 
+        private float _perfAt;
+
         private void LateUpdate()
         {
             if (!Enabled.Value) return;
+            if (PerfLog.Value && Time.time - _perfAt > 10f)
+            {
+                float span = _perfAt > 0f ? Time.time - _perfAt : 10f;
+                Log.LogInfo($"LivePortals perf: {PortalWindow.All.Count} windows exist, {PortalWindow.PerfRenders / span:0.0} window renders/s costing {PortalWindow.PerfMs / span:0.0} ms per second of main-thread time, game {1f / Mathf.Max(0.0001f, Time.smoothDeltaTime):0} fps");
+                PortalWindow.PerfRenders = 0; PortalWindow.PerfMs = 0; _perfAt = Time.time;
+            }
             _wanting.Clear();
             foreach (var w in PortalWindow.All) if (w != null && w.WantsRender) _wanting.Add(w);
             if (_wanting.Count == 0) return;
@@ -272,7 +307,7 @@ namespace LivePortals
             // The keys tune the kind of portal you stand nearest to: the wooden one, or "other" (the stone portal
             // and anything modded), whose values start from what was measured on that portal.
             TeleportWorld near = null; float nearD = 30f;
-            foreach (var tw in UnityEngine.Object.FindObjectsByType<TeleportWorld>(FindObjectsSortMode.None))
+            foreach (var tw in AllPortals())
             {
                 float d = Vector3.Distance(tw.transform.position, player.transform.position);
                 if (d < nearD) { nearD = d; near = tw; }
@@ -303,7 +338,7 @@ namespace LivePortals
             if (ZInput.GetKeyDown(KeyCode.Keypad0, false))
             {
                 TeleportWorld best = null; float bestD = 8f;
-                foreach (var tw in UnityEngine.Object.FindObjectsByType<TeleportWorld>(FindObjectsSortMode.None))
+                foreach (var tw in AllPortals())
                 {
                     float d = Vector3.Distance(tw.transform.position, player.transform.position);
                     if (d < bestD) { bestD = d; best = tw; }
@@ -373,7 +408,7 @@ namespace LivePortals
             try { if (clutter != null && clutter.IsHeightmapReady()) clutter.UpdateGrass(0f, true, player.transform.position); }
             catch (Exception e) { Log.LogWarning("LivePortals: could not pre-build grass: " + e.Message); }
             TeleportWorld best = null; float bestD = 6f; // the stone portal sets you down farther out than the wooden one
-            foreach (var tw in UnityEngine.Object.FindObjectsByType<TeleportWorld>(FindObjectsSortMode.None))
+            foreach (var tw in AllPortals())
             {
                 float d = Vector3.Distance(tw.transform.position, player.transform.position);
                 if (d < bestD) { bestD = d; best = tw; }
@@ -387,19 +422,11 @@ namespace LivePortals
             StartCoroutine(CaptureSeries(portal, why));
         }
 
-        private class Work
-        {
-            public volatile bool Done;
-            public string Error;
-            public int FrontFaces;
-            public double Seconds;
-        }
-
         private static readonly HashSet<ZDOID> _busy = new HashSet<ZDOID>();
 
         /// <summary>
-        /// Render the portal from every capture point in this frame (nothing moves between them), then split the
-        /// faces into layers, encode and store them on a worker thread, so the game only hitches for the renders.
+        /// Capture the portal: a few faces rendered per frame, the pixels read back without waiting for the GPU,
+        /// and the layering, encoding and storing on a low-priority thread as they arrive (see CaptureRun).
         /// </summary>
         private IEnumerator CaptureSeries(TeleportWorld portal, string why)
         {
@@ -408,70 +435,27 @@ namespace LivePortals
             ZDOID id = nview.GetZDO().m_uid;
             if (!_busy.Add(id)) { Dbg("capture of " + Storage.Key(id) + " already running, skipped"); yield break; }
 
-            List<RawPoint> points = null;
-            GrassSet grass = null;
-            Storage.Job job = null;
-            float t0 = Time.realtimeSinceStartup;
-            try
-            {
-                // The secondary viewpoints spread with the opening: a stone portal's is about twice the wooden one's.
-                var shape = PortalShape.Of(portal);
-                var offsets = CaptureSet.PointOffsets(CapturePoints.Value);
-                float sx = Mathf.Clamp(shape.Width / 2.7f, 1f, 3f), sy = Mathf.Clamp(shape.Height / 2.8f, 1f, 3f);
-                for (int i = 0; i < offsets.Length; i++) offsets[i] = new Vector3(offsets[i].x * sx, offsets[i].y * sy, offsets[i].z);
-                points = Capture.RenderPoints(shape.Centre, portal.transform.rotation, offsets, portal);
-                if (points != null && points.Count > 0)
-                {
-                    job = Storage.Begin(id);
-                    grass = GrassSet.Record(shape.Centre, portal.transform.rotation);
-                }
-            }
-            catch (Exception e) { Log.LogWarning("LivePortals: capture failed: " + e); }
-            if (job == null) { _busy.Remove(id); yield break; }
-            float renderMs = (Time.realtimeSinceStartup - t0) * 1000f;
-
-            long takenAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            float skyPct = points[0].SkyFraction * 100f, diffPct = points[0].DiffFraction * 100f, median = points[0].MedianDepth;
-            var work = new Work();
-            System.Threading.ThreadPool.QueueUserWorkItem(_ =>
-            {
-                var sw = System.Diagnostics.Stopwatch.StartNew();
-                try
-                {
-                    Storage.Clear(job);
-                    for (int k = 0; k < points.Count; k++)
-                    {
-                        var pt = points[k];
-                        var grids = new FaceGrids[6];
-                        for (int i = 0; i < 6; i++)
-                        {
-                            if (pt.Faces[i] == null) continue;
-                            var layers = Layers.Process(pt.Faces[i], pt.Res, pt.Step, pt.DepthRange);
-                            layers.Grids.Tan = pt.FaceTan;
-                            pt.Faces[i] = null;
-                            Storage.SaveFace(job, k, i, layers, pt.Res);
-                            grids[i] = layers.Grids;
-                            if (layers.Front != null) work.FrontFaces++;
-                        }
-                        Storage.SavePoint(job, k, pt, grids);
-                    }
-                    Storage.SaveGrass(job, grass);
-                    Storage.Finish(job, points.Count, takenAt);
-                }
-                catch (Exception e) { work.Error = e.ToString(); }
-                work.Seconds = sw.Elapsed.TotalSeconds;
-                work.Done = true;
-            });
-            while (!work.Done) yield return null;
+            var run = new CaptureRun(portal, id);
+            try { run.Prepare(); }
+            catch (Exception e) { Log.LogWarning("LivePortals: capture failed: " + e); run.Abort(); }
+            if (run.Error == null && run.Points.Count > 0) yield return StartCoroutine(run.Render());
+            else if (run.Error == null) run.Abort();
+            while (!run.Done) yield return null;
             _busy.Remove(id);
-            if (work.Error != null) { Log.LogWarning("LivePortals: could not store capture: " + work.Error); yield break; }
+            if (run.Error != null) { Log.LogWarning("LivePortals: could not capture: " + run.Error); yield break; }
             PortalWindow.NotifyCaptureUpdated(id);
-            Log.LogInfo($"LivePortals: {why} capture at portal {Storage.Key(id)}: {points.Count} points, {points[0].Res}px faces, grid {points[0].Res / points[0].Step}, {work.FrontFaces} faces with foreground, {(grass != null ? grass.Count : 0)} grass instances, forward face {skyPct:0}% sky ({diffPct:0}% by colour) with median depth {median:0.0} m; rendered in {renderMs:0} ms, layered and stored in {work.Seconds:0.0} s.");
+            var p0 = run.Points[0];
+            Log.LogInfo($"LivePortals: {why} capture at portal {Storage.Key(id)}: {run.Points.Count} points, {p0.Res}px faces, grid {p0.Res / p0.Step}, {run.FrontFaces} faces with foreground, {run.GrassCount} grass instances, forward face {p0.SkyFraction * 100f:0}% sky ({p0.DiffFraction * 100f:0}% by colour) with median depth {p0.MedianDepth:0.0} m; rendered over {run.RenderFrames} frames ({run.RenderMs:0} ms of them), layered and stored in {run.WorkSeconds:0.0} s.");
         }
     }
 
     internal static class Patches
     {
+        internal static void TeleportWorld_Awake(TeleportWorld __instance)
+        {
+            if (__instance != null && !Plugin.Portals.Contains(__instance)) Plugin.Portals.Add(__instance);
+        }
+
         // Leaving: the player is still standing at this portal for two seconds while the screen fades.
         [HarmonyPatch(typeof(TeleportWorld), nameof(TeleportWorld.Teleport))]
         [HarmonyPrefix]

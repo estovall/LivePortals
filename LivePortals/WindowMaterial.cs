@@ -45,6 +45,22 @@ namespace LivePortals
         internal static void ApplyTo(Camera cam)
         {
             if (_setup != null && _setup.Forward) cam.renderingPath = RenderingPath.Forward;
+            cam.useOcclusionCulling = false; // nothing baked for a camera looking through a hole with its own projection
+        }
+
+        /// <summary>
+        /// Material for the guesses (skirts, far shell): unlit, blended, no depth write, drawn before the reliefs so
+        /// whatever the capture really saw always paints over them. Up to 0.9.3 that took a second camera pass
+        /// (a depth clear between the skirts and the reliefs); one pass in which the skirts write no depth is the
+        /// same picture at half the camera work.
+        /// </summary>
+        internal static Material MakeUnder(Texture tex, int order)
+        {
+            var s = Shader.Find("Sprites/Default") ?? Shader.Find("Unlit/Transparent");
+            if (s == null) return Make(tex, Layers.CutoffAll, order);
+            var m = new Material(s) { mainTexture = tex, color = Color.white };
+            m.renderQueue = (int)RenderQueue.AlphaTest - 20 + order;
+            return m;
         }
 
         internal static Material Make(Texture tex, float cutoff, int order)
@@ -123,7 +139,7 @@ namespace LivePortals
         internal static void SetTint(Material m, Color tint)
         {
             tint.a = 1f;
-            if (_setup != null && _setup.Emissive) m.SetColor(_setup.EmissionColor, tint);
+            if (_setup != null && _setup.Emissive && m.shader == _setup.Shader) m.SetColor(_setup.EmissionColor, tint);
             else if (m.HasProperty("_Color")) m.color = tint;
         }
 
@@ -244,7 +260,9 @@ namespace LivePortals
                     foreach (bool emissive in new[] { canEmit })
                     {
                         if (_setup != null) break;
-                        foreach (bool forward in new[] { false, true })
+                        // Forward first: a camera pass on the deferred path costs a G-buffer, a depth copy and a lighting
+                        // pass per light, none of which an unlit picture needs.
+                        foreach (bool forward in new[] { true, false })
                         {
                             var setup = new Setup { Shader = shader, Emissive = emissive, Forward = forward, HasCull = shader.FindPropertyIndex("_Cull") >= 0, EmissionMap = emissionMap, EmissionColor = emissionColor };
                             cam.renderingPath = forward ? RenderingPath.Forward : defaultPath;
