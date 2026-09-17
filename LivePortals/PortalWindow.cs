@@ -172,14 +172,16 @@ namespace LivePortals
             Quaternion map = glass ? Quaternion.identity : rB * Flip * Quaternion.Inverse(rA);
             if (glass) rB = rA;
             _anchor.transform.SetPositionAndRotation(pe - map * (pe - c), rB);
-            _anchor.transform.localScale = Vector3.one * Plugin.DepthScale.Value; // scales the relief about the far ring centre
+            float ds = Plugin.DepthScale.Value;
+            _anchor.transform.localScale = new Vector3(Plugin.MirrorRelief.Value ? -ds : ds, ds, ds); // scales the relief about the far ring centre
             _cam.transform.SetPositionAndRotation(pe, map * Quaternion.LookRotation(vn, vu));
             _cam.projectionMatrix = Matrix4x4.Frustum(l, r, b, t, near, far);
             // The window camera sits on the (possibly mirrored) eye; the sky is drawn around it either way.
 
             // The pane's u runs from pa: the mesh has u=0 at -x, which is the viewer's left only from behind.
-            _paneMat.mainTextureScale = new Vector2(front ? -1f : 1f, 1f);
-            _paneMat.mainTextureOffset = new Vector2(front ? 1f : 0f, 0f);
+            bool flipU = front != Plugin.MirrorPane.Value;
+            _paneMat.mainTextureScale = new Vector2(flipU ? -1f : 1f, 1f);
+            _paneMat.mainTextureOffset = new Vector2(flipU ? 1f : 0f, 0f);
             _paneMat.color = new Color(1f, 1f, 1f, alpha);
 
             // ---- Lighting: tint the capture to now, and spill light onto the viewer's side ----
@@ -203,11 +205,15 @@ namespace LivePortals
                     if (_backRenderers[i] != null) _backRenderers[i].enabled = true;
                 }
                 _cam.Render();
-                for (int i = 0; i < 6; i++)
-                {
-                    if (_faceRenderers[i] != null) _faceRenderers[i].enabled = false;
-                    if (_backRenderers[i] != null) _backRenderers[i].enabled = false;
-                }
+                // Glass test: leave the relief visible to the game camera as a ghost overlay on the real world.
+                if (!glass)
+                    for (int i = 0; i < 6; i++)
+                    {
+                        if (_faceRenderers[i] != null) _faceRenderers[i].enabled = false;
+                        if (_backRenderers[i] != null) _backRenderers[i].enabled = false;
+                    }
+                else
+                    for (int i = 0; i < 6; i++) if (_backRenderers[i] != null) _backRenderers[i].enabled = false;
             }
         }
 
