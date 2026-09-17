@@ -342,10 +342,12 @@ namespace LivePortals
             }
             if (portal != null)
             {
-                // The swirl and the portal's own glow would tint everything from a camera standing in the ring.
-                if (portal.m_target_found != null)
-                    foreach (var r in portal.m_target_found.GetComponentsInChildren<Renderer>(false)) if (r.enabled) { r.enabled = false; hidden.Add(r); }
+                // The portal itself: its frame, runes, tag sign, swirl and glow all sit around the camera standing in
+                // the ring. Left in, their pixels take the depth of whatever is behind them and float in the scene.
+                // The pane covers the ring at the other end anyway.
+                foreach (var r in portal.GetComponentsInChildren<Renderer>(false)) if (r.enabled) { r.enabled = false; hidden.Add(r); }
                 foreach (var l in portal.GetComponentsInChildren<Light>(false)) if (l.enabled) { l.enabled = false; hiddenLights.Add(l); }
+                foreach (var c in portal.GetComponentsInChildren<Collider>(false)) if (c.enabled) { c.enabled = false; hiddenColliders.Add(c); }
             }
             PortalWindow.SetAllVisible(false);
         }

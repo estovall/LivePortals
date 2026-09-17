@@ -161,7 +161,9 @@ namespace LivePortals
             Vector3 va = pa - pe, vb = pb - pe, vc = pc - pe;
             float d = Vector3.Dot(va, vn);
             if (d < 0.03f) { Hide(); return; } // eye in the plane of the pane
-            float near = 0.05f, far = _cam.farClipPlane;
+            // Near plane on the pane itself: the relief is a full sphere around the far ring, and anything on the
+            // far portal's near side maps to the space between the eye and the pane, where a real hole shows nothing.
+            float near = Mathf.Max(0.02f, d - 0.01f), far = _cam.farClipPlane;
             float l = Vector3.Dot(vr, va) * near / d, r = Vector3.Dot(vr, vb) * near / d;
             float b = Vector3.Dot(vu, va) * near / d, t = Vector3.Dot(vu, vc) * near / d;
 
