@@ -29,7 +29,7 @@ namespace LivePortals
             public readonly List<Texture> Textures = new List<Texture>(); // blurred copies, ours to destroy
         }
 
-        private static readonly List<PortalWindow> All = new List<PortalWindow>();
+        internal static readonly List<PortalWindow> All = new List<PortalWindow>();
         private static readonly Quaternion Flip = Quaternion.Euler(0f, 180f, 0f);
         private static Mesh _quad, _disc;
         private static bool _hiddenForCapture;
@@ -60,8 +60,19 @@ namespace LivePortals
 
         /// <summary>0 = the nearest window; others render less often.</summary>
         internal int Rank;
+        /// <summary>Set by Update when this window would like a redraw; the scheduler in Plugin.LateUpdate grants the nearest few.</summary>
+        internal bool WantsRender;
+        internal float EyeDist => _eyeDist;
         private Vector3 _lastEye = new Vector3(float.NaN, 0f, 0f);
-        private float _lastAlpha = -1f, _lastRenderTime = -10f, _eyeDist;
+        private float _lastAlpha = -1f, _lastRenderTime = -10f, _eyeDist, _alphaNow;
+        private int _loadedPoints, _rtTier = -1;
+        private float _reloadTimer;
+        // What RenderNow needs from the last Update.
+        private Vector3 _pe, _anchor0;
+        private Quaternion _rB;
+        private ZDOID _target;
+        private float _near, _far, _l, _r, _b, _t;
+        private bool _glass, _realFront;
         private readonly System.Diagnostics.Stopwatch _sw = new System.Diagnostics.Stopwatch();
         private double _msAccum; private int _renders, _skips; private float _perfLogTime;
 
@@ -139,10 +150,28 @@ namespace LivePortals
                     if (stored >= 0)
                     {
                         EnsureBuilt(gc); // first: it decides (WindowMaterial) how the capture has to be loaded
-                        _set = Storage.Load(target, !WindowMaterial.DepthWorks);
+                        bool wantAll = dist <= Plugin.SecondaryViewpointRange.Value + 6f;
+                        _set = Storage.Load(target, !WindowMaterial.DepthWorks, wantAll ? int.MaxValue : 1);
+                        _loadedPoints = _set != null ? _set.Captures.Count : 0;
                         if (_set != null && _set.Captures.Count > 0) { BuildReliefs(); Plugin.Dbg("window at " + Storage.Key(_nview.GetZDO().m_uid) + " shows capture " + Storage.Key(target) + " (" + _set.Captures.Count + " points)"); }
                         else { _set?.Destroy(); _set = null; }
                     }
+                }
+            }
+            // Memory: a far window keeps only its primary viewpoint (a third of the textures); the others load when
+            // you come within reach of them and go again when you leave, with a gap so it does not flap.
+            _reloadTimer -= Time.deltaTime;
+            if (_set != null && _reloadTimer <= 0f)
+            {
+                _reloadTimer = 2f;
+                float reach = Plugin.SecondaryViewpointRange.Value;
+                bool wantAll = dist <= reach + 6f, wantOne = dist > reach + 14f;
+                if ((wantAll && _loadedPoints < _set.AvailablePoints) || (wantOne && _loadedPoints > 1))
+                {
+                    ReleaseCapture();
+                    _set = Storage.Load(target, !WindowMaterial.DepthWorks, wantAll ? int.MaxValue : 1);
+                    _loadedPoints = _set != null ? _set.Captures.Count : 0;
+                    if (_set != null && _set.Captures.Count > 0) BuildReliefs(); else { _set?.Destroy(); _set = null; }
                 }
             }
             if (_set == null) { Hide(); return; }
@@ -235,8 +264,20 @@ namespace LivePortals
 
             _visible = true;
             ApplyVisibility();
+            _pe = pe; _anchor0 = anchor0; _rB = rB; _target = target; _near = near; _far = far; _l = l; _r = r; _b = b; _t = t; _glass = glass; _realFront = realFront; _alphaNow = alpha;
             bool wantDump = _dumped != DumpRequest;
-            if (!_hiddenForCapture && ShouldRender(gc.m_camera, pe, alpha, wantDump))
+            WantsRender = !_hiddenForCapture && ShouldRender(gc.m_camera, pe, alpha, wantDump);
+        }
+
+        /// <summary>Redraw the window now, with the geometry of the last Update. Called by the scheduler.</summary>
+        internal void RenderNow()
+        {
+            WantsRender = false;
+            if (_cam == null || _set == null || _rt == null) return;
+            Vector3 pe = _pe, anchor0 = _anchor0; Quaternion rB = _rB; ZDOID target = _target;
+            float near = _near, far = _far, l = _l, r = _r, b = _b, t = _t; bool glass = _glass, realFront = _realFront;
+            _lastEye = pe; _lastAlpha = _alphaNow; _lastRenderTime = Time.time;
+            UpdateResolutionTier();
             {
                 _sw.Restart();
                 // The capture meshes exist only while this camera renders: no other camera ever sees them.
@@ -321,6 +362,24 @@ namespace LivePortals
             catch (System.Exception e) { Plugin.Log.LogWarning("LivePortals: window dump failed: " + e.Message); }
         }
 
+        /// <summary>
+        /// A far window covers few pixels on screen: draw it at a fraction of the resolution. Tiers, not a
+        /// continuous scale, so the texture is not recreated every frame.
+        /// </summary>
+        private void UpdateResolutionTier()
+        {
+            int tier = _eyeDist <= 8f ? 1 : (_eyeDist <= 20f ? 2 : 3);
+            if (tier == _rtTier || _rt == null) return;
+            _rtTier = tier;
+            int res = Mathf.Max(128, Plugin.WindowResolution.Value / tier);
+            if (_rt.width == res) return;
+            _rt.Release();
+            _rt.width = res; _rt.height = res;
+            _rt.Create();
+            _cam.targetTexture = _rt;
+            WindowMaterial.SetPaneTexture(_paneMat, _rt);
+        }
+
         private void SetReliefsEnabled(bool under, bool on)
         {
             // Secondary viewpoints only matter close up, where you look around near things; from farther away the
@@ -348,10 +407,12 @@ namespace LivePortals
             if (_paneRenderer != null && !GeometryUtility.TestPlanesAABB(GeometryUtility.CalculateFrustumPlanes(main), _paneRenderer.bounds)) { _skips++; return false; }
             if (!Plugin.RenderWhenStill.Value)
             {
-                bool moved = float.IsNaN(_lastEye.x) || (pe - _lastEye).sqrMagnitude > 0.0004f || Mathf.Abs(alpha - _lastAlpha) > 0.002f;
+                // Far windows need a new picture only after a bigger step: the parallax of 5 mm per metre of
+                // distance is below a pixel.
+                float thr = Mathf.Max(0.02f, _eyeDist * 0.005f);
+                bool moved = float.IsNaN(_lastEye.x) || (pe - _lastEye).sqrMagnitude > thr * thr || Mathf.Abs(alpha - _lastAlpha) > 0.002f;
                 if (!moved && Time.time - _lastRenderTime < 0.5f) { _skips++; return false; }
             }
-            _lastEye = pe; _lastAlpha = alpha; _lastRenderTime = Time.time;
             if (Plugin.PerfLog.Value && Time.time - _perfLogTime > 10f)
             {
                 if (_renders > 0)
@@ -581,6 +642,7 @@ namespace LivePortals
         private void Hide()
         {
             _visible = false;
+            WantsRender = false;
             ApplyVisibility();
         }
 

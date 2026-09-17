@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "LivePortals";
-        public const string VERSION = "0.9.1";
+        public const string VERSION = "0.9.2";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -65,6 +65,7 @@ namespace LivePortals
         internal static ConfigEntry<float> PortalLight;
         internal static ConfigEntry<float> PortalLightRange;
         internal static ConfigEntry<int> MaxWindows;
+        internal static ConfigEntry<int> MaxRendersPerFrame;
         internal static ConfigEntry<bool> RenderWhenStill;
         internal static ConfigEntry<float> SecondaryViewpointRange;
         internal static ConfigEntry<int> GrassMaxInstances;
@@ -99,8 +100,8 @@ namespace LivePortals
             MeshGrid = Config.Bind("1. General", "MeshGrid", 128,
                 new ConfigDescription("Cells per edge of each captured face's relief mesh. Silhouettes are cut per pixel by the textures regardless; this sets how finely surfaces follow the captured depth.",
                     new AcceptableValueRange<int>(32, 256)));
-            RangeMultiplier = Config.Bind("2. Window", "RangeMultiplier", 8f,
-                new ConfigDescription("The window starts to dissolve in at this many times the portal's activation range (5 m in vanilla, so 8 = 40 m).",
+            RangeMultiplier = Config.Bind("2. Window", "RangeMultiplier", 4f,
+                new ConfigDescription("The window starts to dissolve in at this many times the portal's activation range (5 m in vanilla, so 4 = 20 m).",
                     new AcceptableValueRange<float>(1f, 20f)));
             // Settings files written before 0.8.16 hold the old default of 4; Max asked for the transition to start
             // from twice as far. Done once, so a 4 chosen later on purpose stays.
@@ -109,6 +110,12 @@ namespace LivePortals
             {
                 if (Mathf.Approximately(RangeMultiplier.Value, 4f)) RangeMultiplier.Value = 8f;
                 configVersion.Value = 1;
+            }
+            // 0.9.2: Max asked for half the range again (8 was too far and too many windows at a hub).
+            if (configVersion.Value < 2)
+            {
+                if (Mathf.Approximately(RangeMultiplier.Value, 8f)) RangeMultiplier.Value = 4f;
+                configVersion.Value = 2;
             }
             FullMultiplier = Config.Bind("2. Window", "FullMultiplier", 1f,
                 new ConfigDescription("The window is fully visible from this many times the activation range inward.",
@@ -165,8 +172,10 @@ namespace LivePortals
                     new AcceptableValueRange<float>(0f, 5f)));
             PortalLightRange = Config.Bind("4. Look", "PortalLightRange", 8f,
                 new ConfigDescription("Reach of that light in metres.", new AcceptableValueRange<float>(1f, 30f)));
-            MaxWindows = Config.Bind("5. Performance", "MaxWindows", 2,
-                new ConfigDescription("Most windows drawn at once (nearest first). Each one is an extra scene render whenever it is on screen and you move.", new AcceptableValueRange<int>(1, 8)));
+            MaxWindows = Config.Bind("5. Performance", "MaxWindows", 8,
+                new ConfigDescription("Most windows kept loaded at once (nearest first). Loaded windows beyond SecondaryViewpointRange hold only their primary viewpoint, so this mostly costs memory; drawing is limited by MaxRendersPerFrame.", new AcceptableValueRange<int>(1, 16)));
+            MaxRendersPerFrame = Config.Bind("5. Performance", "MaxRendersPerFrame", 2,
+                new ConfigDescription("Most windows redrawn in one frame, nearest first; the others keep their last picture until their turn. This bounds the cost at a hub whatever the number of portals.", new AcceptableValueRange<int>(1, 8)));
             RenderEveryNFrames = Config.Bind("5. Performance", "RenderEveryNFrames", 1,
                 new ConfigDescription("Redraw the nearest window every N frames (others every 3N). 2 halves the cost with a barely visible lag.",
                     new AcceptableValueRange<int>(1, 4)));
@@ -230,6 +239,26 @@ namespace LivePortals
                     w.SetSuppressed(false);
                 }
                 else if (w != null) w.SetSuppressed(true);
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Render scheduler: of the windows that want a redraw this frame, the nearest few get it.
+        // ------------------------------------------------------------------
+        private static readonly List<PortalWindow> _wanting = new List<PortalWindow>();
+
+        private void LateUpdate()
+        {
+            if (!Enabled.Value) return;
+            _wanting.Clear();
+            foreach (var w in PortalWindow.All) if (w != null && w.WantsRender) _wanting.Add(w);
+            if (_wanting.Count == 0) return;
+            if (_wanting.Count > 1) _wanting.Sort((a, b) => a.EyeDist.CompareTo(b.EyeDist));
+            int budget = Mathf.Max(1, MaxRendersPerFrame.Value);
+            for (int i = 0; i < _wanting.Count; i++)
+            {
+                if (i < budget) _wanting[i].RenderNow();
+                else _wanting[i].WantsRender = false; // its turn comes on a later frame
             }
         }
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.2
+
+- Hubs: windows are no longer capped at a few. Up to `MaxWindows` (8) stay loaded, but only the nearest `MaxRendersPerFrame` (2) of those that need a new picture are redrawn in any frame; the rest keep their last picture until their turn. Far windows redraw only after a larger step of the eye and at a fraction of the resolution, and hold only their primary viewpoint until you come within reach.
+- Range halved again: the window dissolves in from 4x the activation range (about 20 m). A stored 8 is brought down once.
+
 ## 0.9.1
 
 - Performance. A window is no longer redrawn when its pane is outside the game camera's view, nor while the camera stands still (the picture depends on where the eye is, not where it looks; a still window refreshes twice a second for the sky). Windows other than the nearest redraw a third as often. The extra capture viewpoints are drawn only within 12 m of the pane (`SecondaryViewpointRange`). Live grass is capped at the 4000 tufts nearest the far portal (`GrassMaxInstances`, 0 turns it off). `MaxWindows` default 2. `PerfLog` logs each window's render time every 10 s.

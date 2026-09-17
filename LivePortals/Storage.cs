@@ -125,7 +125,7 @@ namespace LivePortals
         }
 
         /// <summary>opaqueAlpha: for the blended fallback material, which would show filled-in texels (alpha 160) as see-through: every texel becomes fully opaque or fully clear.</summary>
-        internal static CaptureSet Load(ZDOID id, bool opaqueAlpha = false)
+        internal static CaptureSet Load(ZDOID id, bool opaqueAlpha = false, int maxPoints = int.MaxValue)
         {
             string dir = Dir(), key = Key(id);
             string mp = MetaPath(dir, key);
@@ -144,7 +144,9 @@ namespace LivePortals
                     return null;
                 if (meta.TryGetValue("takenAt", out var ta)) long.TryParse(ta, NumberStyles.Integer, CultureInfo.InvariantCulture, out set.TakenAt);
                 set.Grass = GrassSet.Load(GrassPath(dir, key));
-                for (int p = 0; p < points; p++)
+                set.AvailablePoints = points;
+                int load = Mathf.Min(points, Mathf.Max(1, maxPoints));
+                for (int p = 0; p < load; p++)
                 {
                     var cap = new PortalCapture { TakenAt = set.TakenAt };
                     set.Captures.Add(cap); // owned by the set from here on, so a failure below frees its textures

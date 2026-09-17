@@ -51,6 +51,8 @@ namespace LivePortals
         public readonly List<Vector3> Offsets = new List<Vector3>();
         public GrassSet Grass;
         public long TakenAt;
+        /// <summary>How many viewpoints the stored capture has; Captures may hold fewer (far windows load only the primary).</summary>
+        public int AvailablePoints;
 
         /// <summary>
         /// Faces captured from the secondary points: all but up. (0.8.1 to 0.8.5 also left out the one looking back.

@@ -103,6 +103,14 @@ namespace LivePortals
             return m;
         }
 
+        /// <summary>Point the pane at a (re)created window texture.</summary>
+        internal static void SetPaneTexture(Material m, Texture rt)
+        {
+            if (m == null) return;
+            if (_setup != null && _setup.Emissive && m.shader == _setup.Shader) m.SetTexture(_setup.EmissionMap, rt);
+            else m.mainTexture = rt;
+        }
+
         /// <summary>visible 0..1: how much of the pane has dissolved in.</summary>
         internal static void SetPaneVisible(Material m, float visible)
         {
