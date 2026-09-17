@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.1
+
+- Performance. A window is no longer redrawn when its pane is outside the game camera's view, nor while the camera stands still (the picture depends on where the eye is, not where it looks; a still window refreshes twice a second for the sky). Windows other than the nearest redraw a third as often. The extra capture viewpoints are drawn only within 12 m of the pane (`SecondaryViewpointRange`). Live grass is capped at the 4000 tufts nearest the far portal (`GrassMaxInstances`, 0 turns it off). `MaxWindows` default 2. `PerfLog` logs each window's render time every 10 s.
+
 ## 0.9.0
 
 - Grass is no longer part of the captured picture. The capture records where every tuft of the game's instanced clutter stands within 45 m of the portal, and the window draws the game's own grass meshes with the game's own material at those places: real geometry, right from every angle, moving in the wind, lit by the current hour. As a picture a meadow was a stack of cut-out cards over smeared ground and fell apart from any eye but the capture's. `GrassGap` (0.75 m) keeps blades out of the ring itself; `GrassClearRadius` is gone.

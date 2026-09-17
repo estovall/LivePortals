@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "LivePortals";
-        public const string VERSION = "0.9.0";
+        public const string VERSION = "0.9.1";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -65,6 +65,10 @@ namespace LivePortals
         internal static ConfigEntry<float> PortalLight;
         internal static ConfigEntry<float> PortalLightRange;
         internal static ConfigEntry<int> MaxWindows;
+        internal static ConfigEntry<bool> RenderWhenStill;
+        internal static ConfigEntry<float> SecondaryViewpointRange;
+        internal static ConfigEntry<int> GrassMaxInstances;
+        internal static ConfigEntry<bool> PerfLog;
         internal static ConfigEntry<int> RenderEveryNFrames;
         internal static ConfigEntry<bool> DebugLog;
 
@@ -161,11 +165,20 @@ namespace LivePortals
                     new AcceptableValueRange<float>(0f, 5f)));
             PortalLightRange = Config.Bind("4. Look", "PortalLightRange", 8f,
                 new ConfigDescription("Reach of that light in metres.", new AcceptableValueRange<float>(1f, 30f)));
-            MaxWindows = Config.Bind("5. Performance", "MaxWindows", 3,
-                new ConfigDescription("Most windows drawn at once (nearest first).", new AcceptableValueRange<int>(1, 8)));
+            MaxWindows = Config.Bind("5. Performance", "MaxWindows", 2,
+                new ConfigDescription("Most windows drawn at once (nearest first). Each one is an extra scene render whenever it is on screen and you move.", new AcceptableValueRange<int>(1, 8)));
             RenderEveryNFrames = Config.Bind("5. Performance", "RenderEveryNFrames", 1,
-                new ConfigDescription("Redraw each window every N frames. 2 halves the cost with a barely visible lag.",
+                new ConfigDescription("Redraw the nearest window every N frames (others every 3N). 2 halves the cost with a barely visible lag.",
                     new AcceptableValueRange<int>(1, 4)));
+            RenderWhenStill = Config.Bind("5. Performance", "RenderWhenStill", false,
+                "Keep redrawing a window while the camera does not move. Off: a still window only refreshes twice a second (for the sky), which costs nearly nothing.");
+            SecondaryViewpointRange = Config.Bind("5. Performance", "SecondaryViewpointRange", 12f,
+                new ConfigDescription("Metres from the pane within which the extra capture viewpoints are drawn. Farther away the primary viewpoint alone looks the same and is a third of the geometry.",
+                    new AcceptableValueRange<float>(0f, 60f)));
+            GrassMaxInstances = Config.Bind("5. Performance", "GrassMaxInstances", 4000,
+                new ConfigDescription("Most grass tufts drawn through a window (the nearest to the far portal). 0 = no live grass.",
+                    new AcceptableValueRange<int>(0, 60000)));
+            PerfLog = Config.Bind("5. Performance", "PerfLog", false, "Log each window's render time every 10 s.");
             DebugLog = Config.Bind("5. Performance", "DebugLog", false, "Verbose logging of captures and windows.");
 
             _harmony = new Harmony(GUID);
@@ -212,7 +225,9 @@ namespace LivePortals
                 var w = tw.GetComponent<PortalWindow>();
                 if (i < MaxWindows.Value)
                 {
-                    if (w == null) tw.gameObject.AddComponent<PortalWindow>();
+                    if (w == null) w = tw.gameObject.AddComponent<PortalWindow>();
+                    w.Rank = i;
+                    w.SetSuppressed(false);
                 }
                 else if (w != null) w.SetSuppressed(true);
             }

@@ -58,6 +58,13 @@ namespace LivePortals
         private float _lastRequest = -10f;
         private float _lastGlassLog = -10f;
 
+        /// <summary>0 = the nearest window; others render less often.</summary>
+        internal int Rank;
+        private Vector3 _lastEye = new Vector3(float.NaN, 0f, 0f);
+        private float _lastAlpha = -1f, _lastRenderTime = -10f, _eyeDist;
+        private readonly System.Diagnostics.Stopwatch _sw = new System.Diagnostics.Stopwatch();
+        private double _msAccum; private int _renders, _skips; private float _perfLogTime;
+
         // ------------------------------------------------------------------
         internal static void NotifyCaptureUpdated(ZDOID id)
         {
@@ -174,6 +181,7 @@ namespace LivePortals
             Vector3 vr = (pb - pa).normalized, vu = (pc - pa).normalized, vn = Vector3.Cross(vr, vu).normalized;
             Vector3 va = pa - pe, vb = pb - pe, vc = pc - pe;
             float d = Vector3.Dot(va, vn);
+            _eyeDist = (pe - c).magnitude;
             if (d < 0.03f) { Hide(); return; } // eye in the plane of the pane
             // Near plane on the pane itself: the reliefs are full spheres around the far ring, and anything on the
             // far portal's near side maps to the space between the eye and the pane, where a real hole shows nothing.
@@ -227,8 +235,10 @@ namespace LivePortals
 
             _visible = true;
             ApplyVisibility();
-            if (!_hiddenForCapture && (_frame++ % Mathf.Max(1, Plugin.RenderEveryNFrames.Value)) == 0)
+            bool wantDump = _dumped != DumpRequest;
+            if (!_hiddenForCapture && ShouldRender(gc.m_camera, pe, alpha, wantDump))
             {
+                _sw.Restart();
                 // The capture meshes exist only while this camera renders: no other camera ever sees them.
                 // Pass one: the sky, then the skirts. Pass two keeps that picture, clears depth, and draws the
                 // reliefs over it, so a skirt (which spans all the depth between two surfaces) never hides them.
@@ -253,6 +263,8 @@ namespace LivePortals
                 SetReliefsEnabled(false, false);
                 _cam.clearFlags = clear;
                 _cam.cullingMask = mask;
+                _sw.Stop();
+                _msAccum += _sw.Elapsed.TotalMilliseconds; _renders++;
                 if (dump)
                 {
                     _dumped = DumpRequest;
@@ -311,8 +323,42 @@ namespace LivePortals
 
         private void SetReliefsEnabled(bool under, bool on)
         {
-            foreach (var rl in _reliefs)
-                foreach (var r in under ? rl.Under : rl.Renderers) r.enabled = on;
+            // Secondary viewpoints only matter close up, where you look around near things; from farther away the
+            // primary alone is indistinguishable and a third of the geometry.
+            bool secondaries = _eyeDist <= Plugin.SecondaryViewpointRange.Value;
+            for (int k = 0; k < _reliefs.Count; k++)
+            {
+                bool use = on && (k == 0 || secondaries);
+                var rl = _reliefs[k];
+                foreach (var r in under ? rl.Under : rl.Renderers) r.enabled = use;
+            }
+        }
+
+        /// <summary>
+        /// Whether to redraw the window this frame. It is skipped when the pane is outside the game camera's view,
+        /// on frames a lower-ranked window sits out, and, unless RenderWhenStill, while the eye has not moved and the
+        /// dissolve has not changed (the picture depends on the eye position, not on where you look; only the sky
+        /// changes on its own, so a still window still refreshes twice a second).
+        /// </summary>
+        private bool ShouldRender(Camera main, Vector3 pe, float alpha, bool dump)
+        {
+            if (dump) return true;
+            int stride = Mathf.Max(1, Plugin.RenderEveryNFrames.Value) * (Rank == 0 ? 1 : 3);
+            if ((_frame++ % stride) != 0) { _skips++; return false; }
+            if (_paneRenderer != null && !GeometryUtility.TestPlanesAABB(GeometryUtility.CalculateFrustumPlanes(main), _paneRenderer.bounds)) { _skips++; return false; }
+            if (!Plugin.RenderWhenStill.Value)
+            {
+                bool moved = float.IsNaN(_lastEye.x) || (pe - _lastEye).sqrMagnitude > 0.0004f || Mathf.Abs(alpha - _lastAlpha) > 0.002f;
+                if (!moved && Time.time - _lastRenderTime < 0.5f) { _skips++; return false; }
+            }
+            _lastEye = pe; _lastAlpha = alpha; _lastRenderTime = Time.time;
+            if (Plugin.PerfLog.Value && Time.time - _perfLogTime > 10f)
+            {
+                if (_renders > 0)
+                    Plugin.Log.LogInfo($"LivePortals perf: window {name} rank {Rank}: {_renders} renders / {_skips} skipped in {Time.time - _perfLogTime:0}s, avg {_msAccum / _renders:0.0} ms per render ({_msAccum / Mathf.Max(0.1f, Time.time - _perfLogTime):0.0} ms per second), {_reliefs.Count} viewpoints, eye {_eyeDist:0.0} m");
+                _perfLogTime = Time.time; _msAccum = 0; _renders = 0; _skips = 0;
+            }
+            return true;
         }
 
         private void UpdateLight(PortalCapture cap, Vector3 c, Vector3 outward, Color tint, float alpha)
