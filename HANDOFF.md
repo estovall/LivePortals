@@ -256,6 +256,15 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     `ClutterSystem.instance.m_clutter`. Unknowns: `Custom/Grass` has a `_TerrainColorTex` (tint may come from the
     viewer's terrain instead of the far side's), it is lit by the viewer's sun and gets no far-side fog. Stone pane
     factor now 1.125 (4.20 x 4.42 m): Max still saw a gap at the bottom of the arch. **Untested.**
+26. Performance (0.9.1, 0.9.2; Max reported 19 fps at his server hub with 3+ portals). 0.9.1: frustum cull per window,
+    render only when the eye moved (`RenderWhenStill`), rank stride, secondary viewpoints only within
+    `SecondaryViewpointRange` (12 m), `GrassMaxInstances`, `PerfLog` (10 s lines). 0.9.2: `Plugin.LateUpdate` is a
+    scheduler; windows set `WantsRender` in `Update` and only the nearest `MaxRendersPerFrame` (2) call `RenderNow()`;
+    `MaxWindows` (8) now caps loaded windows instead of rendering ones; eye-move threshold scales with distance;
+    window RT drops to 1/2 and 1/3 resolution past 8 m / 20 m (`UpdateResolutionTier`); far windows load only the
+    primary viewpoint (`Storage.Load(..., maxPoints)`, reload with hysteresis at `SecondaryViewpointRange` +6/+14);
+    `RangeMultiplier` default 4 (ConfigVersion 2 migrates a stored 8). **Untested**: Max is to report fps before/after
+    at the hub and the PerfLog lines.
 25. Not yet done: publish to Hexium (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 
