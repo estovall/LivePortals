@@ -33,6 +33,7 @@ namespace LivePortals
         private Material _paneMat;
         private GameObject _anchor;
         private readonly Renderer[] _faceRenderers = new Renderer[6];
+        private readonly Renderer[] _backRenderers = new Renderer[6];
         private readonly MeshFilter[] _faceFilters = new MeshFilter[6];
         private readonly Material[] _faceMats = new Material[6];
         private readonly Mesh[] _faceMeshes = new Mesh[6];
@@ -184,9 +185,17 @@ namespace LivePortals
             if (!_hiddenForCapture && (_frame++ % Mathf.Max(1, Plugin.RenderEveryNFrames.Value)) == 0)
             {
                 // The capture meshes exist only while this camera renders: no other camera ever sees them.
-                for (int i = 0; i < 6; i++) if (_faceRenderers[i] != null) _faceRenderers[i].enabled = true;
+                for (int i = 0; i < 6; i++)
+                {
+                    if (_faceRenderers[i] != null) _faceRenderers[i].enabled = true;
+                    if (_backRenderers[i] != null) _backRenderers[i].enabled = true;
+                }
                 _cam.Render();
-                for (int i = 0; i < 6; i++) if (_faceRenderers[i] != null) _faceRenderers[i].enabled = false;
+                for (int i = 0; i < 6; i++)
+                {
+                    if (_faceRenderers[i] != null) _faceRenderers[i].enabled = false;
+                    if (_backRenderers[i] != null) _backRenderers[i].enabled = false;
+                }
             }
         }
 
@@ -250,6 +259,18 @@ namespace LivePortals
                 mr.receiveShadows = false;
                 mr.enabled = false;
                 _faceRenderers[i] = mr;
+
+                // Flat backdrop at the depth range behind the relief, same picture: fills the holes at silhouettes.
+                var bk = new GameObject("Back" + i);
+                bk.layer = Plugin.FaceLayer;
+                bk.transform.SetParent(f.transform, false);
+                bk.AddComponent<MeshFilter>().sharedMesh = FlatFace(Plugin.DepthRange.Value * 1.02f);
+                var br = bk.AddComponent<MeshRenderer>();
+                br.sharedMaterial = _faceMats[i];
+                br.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                br.receiveShadows = false;
+                br.enabled = false;
+                _backRenderers[i] = br;
             }
 
             // Window camera: draws the current sky like the game's sky camera, then the capture meshes.
@@ -338,19 +359,28 @@ namespace LivePortals
                     cols[y * n + x] = new Color32(255, 255, 255, 255);
                 }
             }
-            var tris = new int[(n - 1) * (n - 1) * 6];
-            int k = 0;
+            // Only connect vertices that belong to the same surface: a triangle spanning a depth jump (a rock
+            // edge against the ground behind it, anything against the sky) would be a streak toward the horizon.
+            // Holes left at silhouettes show the flat backdrop behind the relief instead.
+            var tris = new List<int>((n - 1) * (n - 1) * 6);
             for (int y = 0; y < n - 1; y++)
                 for (int x = 0; x < n - 1; x++)
                 {
                     int i0 = y * n + x, i1 = i0 + 1, i2 = i0 + n, i3 = i2 + 1;
-                    tris[k++] = i0; tris[k++] = i2; tris[k++] = i1;
-                    tris[k++] = i1; tris[k++] = i2; tris[k++] = i3;
+                    float z0 = verts[i0].z, z1 = verts[i1].z, z2 = verts[i2].z, z3 = verts[i3].z;
+                    if (Continuous(z0, z2, z1)) { tris.Add(i0); tris.Add(i2); tris.Add(i1); }
+                    if (Continuous(z1, z2, z3)) { tris.Add(i1); tris.Add(i2); tris.Add(i3); }
                 }
             m.indexFormat = n * n > 65000 ? UnityEngine.Rendering.IndexFormat.UInt32 : UnityEngine.Rendering.IndexFormat.UInt16;
-            m.vertices = verts; m.uv = uvs; m.colors32 = cols; m.triangles = tris;
+            m.vertices = verts; m.uv = uvs; m.colors32 = cols; m.triangles = tris.ToArray();
             m.RecalculateBounds();
             return m;
+        }
+
+        private static bool Continuous(float a, float b, float c)
+        {
+            float lo = Mathf.Min(a, Mathf.Min(b, c)), hi = Mathf.Max(a, Mathf.Max(b, c));
+            return hi - lo < 0.6f || hi < lo * 1.35f;
         }
 
         private static Mesh FlatFace(float range)
