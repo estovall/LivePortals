@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.31 (TESTING: on the `testing` branch only, not published)
+
+- Stepping into a portal no longer hitches: the one-frame departure capture of 0.9.29 and 0.9.30 is gone. The game moves you two seconds after you step in, never sooner, so a departure capture spread over frames has all the time it needs.
+- The departure capture that went missing after a quick return trip is fixed for real. Arriving and stepping straight back in, the arrival capture's files were still being written, and the departure capture waited for that and found the place gone. It now renders at once and only its writing waits.
+
 ## 0.9.30 (TESTING: on the `testing` branch only, not published)
 
 - Departure captures read the GPU on the spot instead of asynchronously: rendered in one frame, they queued over a hundred asynchronous reads at once, more than the GPU hands back, and the capture was lost. Arrivals, spread over frames, keep the asynchronous reads.

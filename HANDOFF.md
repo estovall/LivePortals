@@ -617,6 +617,13 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     the retry could not run (portal gone). Cause: Hurry issues ~126 AsyncGPUReadback requests in one frame.
     `Capture.RenderFace(rig, f, sync)` / `Read(..., sync)`: departures read synchronously; arrivals stay async.
     **Untested.**
+63. 0.9.31 testing: Max, "it takes about 2 seconds to load in a frame now after walking through, it has to be
+    seamless". Hurry (one-frame departure, 0.9.29/0.9.30) removed. Player.UpdateTeleport (decompiled) moves the
+    player at m_teleportTimer > 2 s, so there is no fast-load race; "the portal went away" came from the 0.9.26
+    busy-wait (the arrival worker still storing 4 to 9 s, the departure waiting behind it). Now `_running`
+    (Dictionary<ZDOID, CaptureRun>): a newer capture renders immediately with `StoreAfter` = the earlier run, and
+    its worker waits (up to 60 s) for that run's Done before Storage.Clear. Async reads for all captures again
+    (sync parameter kept, unused). **Untested.**
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

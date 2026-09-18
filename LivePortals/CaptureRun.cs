@@ -42,8 +42,8 @@ namespace LivePortals
         public int GrassCount => _grass != null ? _grass.Count : 0;
         public int FireCount => _fire != null ? _fire.Items.Count : 0;
 
-        /// <summary>A departure: the place is about to unload, so render as fast as the frame allows (all faces at once if need be).</summary>
-        internal bool Hurry;
+        /// <summary>An earlier capture of the same portal whose files are still being written: this one's writing waits for it.</summary>
+        internal CaptureRun StoreAfter;
 
         internal CaptureRun(TeleportWorld portal, ZDOID id)
         {
@@ -104,7 +104,7 @@ namespace LivePortals
         /// <summary>Main thread, over several frames: render the faces a few per frame, hand each one's pixels to the worker as they arrive.</summary>
         internal IEnumerator Render()
         {
-            int perFrame = Hurry ? _faces.Count : Mathf.Max(1, Plugin.CaptureFacesPerFrame.Value);
+            int perFrame = Mathf.Max(1, Plugin.CaptureFacesPerFrame.Value);
             while (_issued < _faces.Count)
             {
                 if (_portal == null || _abort) { Fail("the portal went away during the capture"); yield break; }
@@ -115,8 +115,8 @@ namespace LivePortals
                     // At most perFrame faces, and no further face once this frame has spent its budget: a face is five
                     // or six camera renders, 25 ms on a middling machine, and two of them back to back is a frame
                     // at 20 fps, eleven times in a row.
-                    float budget = Hurry ? 1f : Plugin.CaptureFrameBudgetMs.Value / 1000f;
-                    for (int n = 0; n < perFrame && _issued < _faces.Count && (n == 0 || Time.realtimeSinceStartup - t0 < budget); n++, _issued++) Capture.RenderFace(_rig, _faces[_issued], Hurry);
+                    float budget = Plugin.CaptureFrameBudgetMs.Value / 1000f;
+                    for (int n = 0; n < perFrame && _issued < _faces.Count && (n == 0 || Time.realtimeSinceStartup - t0 < budget); n++, _issued++) Capture.RenderFace(_rig, _faces[_issued]);
                 }
                 catch (Exception e) { Fail("render failed: " + e.Message); }
                 finally { _hidden.Show(); }
@@ -196,7 +196,14 @@ namespace LivePortals
                         _signal.WaitOne(200);
                         continue;
                     }
-                    if (!cleared) { Storage.Clear(_job); cleared = true; }
+                    if (!cleared)
+                    {
+                        // The earlier capture of this portal first, so its files never land on top of these.
+                        var earlier = StoreAfter;
+                        for (int i = 0; earlier != null && !earlier.Done && i < 1200 && !_abort; i++) Thread.Sleep(50);
+                        if (_abort) return;
+                        Storage.Clear(_job); cleared = true;
+                    }
                     var pt = _points[f.PointIndex];
                     var raw = f.Composed ?? Capture.Compose(f, pt, _far, _exposure, _waterLevel);
                     f.Composed = null;

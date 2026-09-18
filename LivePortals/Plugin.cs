@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "Immersive Portals";
-        public const string VERSION = "0.9.30";
+        public const string VERSION = "0.9.31";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -536,7 +536,8 @@ namespace LivePortals
             StartCoroutine(CaptureSeries(portal, why));
         }
 
-        private static readonly HashSet<ZDOID> _busy = new HashSet<ZDOID>();
+        /// <summary>The capture of each portal still rendering or being stored. A newer one of the same portal renders at once and only its storing waits.</summary>
+        private static readonly Dictionary<ZDOID, CaptureRun> _running = new Dictionary<ZDOID, CaptureRun>();
 
         /// <summary>
         /// Capture the portal: a few faces rendered per frame, the pixels read back without waiting for the GPU,
@@ -547,24 +548,18 @@ namespace LivePortals
             var nview = portal != null ? portal.GetComponent<ZNetView>() : null;
             if (nview == null || !nview.IsValid()) yield break;
             ZDOID id = nview.GetZDO().m_uid;
-            if (_busy.Contains(id))
-            {
-                // A capture of this portal is still being stored (arriving, then straight back in): wait for it
-                // rather than drop this one, which is the more recent view.
-                Dbg("capture of " + Storage.Key(id) + " already running; this " + why + " capture waits for it");
-                float until = Time.realtimeSinceStartup + 30f;
-                while (_busy.Contains(id) && Time.realtimeSinceStartup < until) yield return null;
-                if (_busy.Contains(id) || portal == null) { Dbg("capture of " + Storage.Key(id) + " dropped: the earlier one did not finish or the portal is gone"); yield break; }
-            }
-            _busy.Add(id);
+            // Arriving and stepping straight back in: the arrival capture's thread is still writing its files (four
+            // to nine seconds) when the departure capture is due. The departure renders now, while the place is
+            // still here (the game moves you two seconds after stepping in, never sooner), and only its writing
+            // waits for the earlier thread. Up to 0.9.24 it was skipped, 0.9.26 to 0.9.30 waited before rendering,
+            // and by then the place was gone.
+            _running.TryGetValue(id, out var previous);
 
             CaptureRun run = null;
             for (int attempt = 0; attempt < 2; attempt++)
             {
-                // A departure is rendered in one frame: with the far side already loaded the game moves you and
-                // unloads this place within a few frames of stepping in (0.9.27: "the portal went away during the
-                // capture"). The screen is fading to black meanwhile.
-                run = new CaptureRun(portal, id) { Hurry = why == "departure" };
+                run = new CaptureRun(portal, id) { StoreAfter = previous };
+                _running[id] = run;
                 try { run.Prepare(); }
                 catch (Exception e) { Log.LogWarning("LivePortals: capture failed: " + e); run.Abort(); }
                 if (run.Error == null && run.Points.Count > 0) yield return StartCoroutine(run.Render());
@@ -574,7 +569,7 @@ namespace LivePortals
                 if (run.Error != null && run.Error.Contains("hand back") && attempt == 0 && portal != null) { Dbg("retrying the " + why + " capture with plain reads"); continue; }
                 break;
             }
-            _busy.Remove(id);
+            if (_running.TryGetValue(id, out var current) && current == run) _running.Remove(id);
             if (run.Error != null) { Log.LogWarning("LivePortals: could not capture: " + run.Error); yield break; }
             PortalWindow.NotifyCaptureUpdated(id);
             var p0 = run.Points[0];
