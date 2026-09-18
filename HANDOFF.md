@@ -1,9 +1,29 @@
 # Pick-up notes for LivePortals
 
-Last updated 2026-09-18 on Max's second PC. `main` is the current dev state, **0.9.22**. Published on Hexium as
-`Max/Immersive_Portals` (0.9.22 is the latest there). Max tests each build and reports with screenshots; on the second
-PC the mod runs from the game folder's own `BepInEx\plugins` (world "sails"), on the home PC from Gale as a Hexium
-package. Captures live in `AppData\LocalLow\IronGate\Valheim\LivePortals\<world>`.
+Last updated 2026-09-18 (evening) on Max's second PC, right before he moved to the home PC. **Two lines of code:**
+`main` = **0.9.22**, the version published on Hexium (`Max/Immersive_Portals`). Branch **`testing`** = **0.9.23**, work
+in progress, NOT published: Max: "as of current it is not better than the last hexium version specifically as i fear
+some optimization tweaks may have added more issues on stuff we havent tested yet". Work continues on `testing`;
+merge to `main` and publish only when he says it is better. Captures live in
+`AppData\LocalLow\IronGate\Valheim\LivePortals\<world>`. On the home PC the mod is installed through Gale as the
+Hexium package (profile folder `...\BepInEx\plugins\Max-Immersive_Portals\`): to test, build and replace
+`LivePortals.dll` there (delete first: Gale hard-links). Numpad keys are OFF by default now: set `TuneKeys = true`
+under `[6. Debug]` in `com.maxst.liveportals.cfg` for numpad 5 (dump) and 0 (capture); `PerfLog = true` for numbers.
+
+## What is on `testing` and unconfirmed (0.9.23, items 52 to 55)
+
+| Change | Suspect if something new breaks | Switch it off with |
+|---|---|---|
+| Nearest window redraws at most 60 times a second | parallax stepping while strafing at high fps | `MaxWindowFps = 500` |
+| Extra viewpoints loaded at half resolution | soft slivers beside near things up close | `HalfResSecondaries = false` |
+| Capture frame budget (one face per frame on slower machines) | things that move differ between faces; longer captures | `CaptureFrameBudgetMs = 100` |
+| Fire-in-view gating of the 30 Hz still redraw and the bloom pass; bloom every other redraw | flames freezing or bloom flickering when a fire is at the edge of the view | (code: `FireInView`, `RenderBloom`) |
+| Sky-light pass rendered with black fog; far pixels black in both additive layers | distance too dark at night, or fog too dark at dusk | `CaptureSkyLight = false` and recapture |
+| Grass gain measured at capture (`MeasureGrassGain`) | grass too dark by day; log line "grass here is r g b times as bright" | (code; gain 1 when the test view has no grass) |
+| Grass grows in between 24 m and 16 m | grass visibly rising | (code: `GrassSet.Draw` grow) |
+| Ring lower edges matched for big/small pairs (`ringHeight` in the meta) | far ground too high or low through mixed pairs; same-size pairs are unaffected | (code: `Refresh`, anchor0 shift) |
+
+Also unconfirmed from 0.9.22 itself: other players hidden from captures; bloom at 4; torchlight added back as 1 - t.
 
 ## State at hand-over (read this first)
 
@@ -510,6 +530,54 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     in front of the ring in the picture. `HideForCapture` now hides every `Player.GetAllPlayers()` entry
     (renderers, lights, colliders; a held torch's flame and light go too), not only the local one. Sixth build.
     **Untested** (needs a second player).
+52. Performance after 0.9.22 (2026-09-18; Max: "its key that this is extremely performative"). No numbers yet:
+    `PerfLog` was off all day (now on in the second PC's config). What 0.9.21/0.9.22 added: (a) a window with
+    live fire redrew 30 times a second for a still eye, and ran the bloom pass (a third camera render) on every
+    redraw; (b) a capture is 6 renders per face of the primary viewpoint (colour, torches only, no sun, sky pair,
+    depth), 520 to 700 ms over 11 frames on this PC = eleven 50 ms frames; (c) textures: a fully loaded window is
+    about 125 MB of uncompressed RGBA (4 viewpoints) plus 38 MB for the full-resolution sky-light layers plus 9 MB
+    torchlight; eight of them at a hub would be over a gigabyte. Done, uncommitted, **untested**: `FireInView`
+    (frustum test of the flame copies) gates both the 30 Hz still redraw and the bloom pass; the bloom pass runs
+    every other redraw; `CaptureFrameBudgetMs` (10) stops a capture frame from starting a second face once the
+    first took that long; the perf line now reports the game's texture memory, the video memory and the windows'
+    share (`PortalWindow.CaptureMegabytes`). Not done, waiting for numbers: secondary viewpoints at half
+    resolution (they only fill in what the primary could not see: 47 MB -> 12 MB per near window), the torches-only
+    capture pass at half resolution, fewer loaded windows at hubs.
+53. 2026-09-18, after 0.9.22 was published. Max (night screenshots): "see the whit ghostly stuff in the distance?"
+    Far hills, fog and baked sky stood pale at night. Cause: the no-sun pass was rendered with the fog in its day
+    colour, so the fog's own colour counted as sky-lit and was dimmed only by the ambient ratio; item 49's "far
+    pixels are all sky light" made the same mistake for the dome. Now the no-sun pass runs with black fog
+    (`RenderSettings.fogColor` and `_SunFogColor`), so the sky layer holds sky-lit surfaces as the fog lets them
+    through and nothing of the fog, and far pixels are black in both additive layers: fog and dome dim with the
+    sun tint. Needs a recapture. **Untested.**
+    First perf numbers (second PC, 8 GB card, 120 fps): a redraw is 1.2 to 1.8 ms of main thread including the
+    bloom pass; walking past a fire window cost up to 108 ms per second (63 redraws); standing still costs
+    nothing; captures are now 21 frames of about 28 ms; **two fully loaded windows hold 245 MB of textures, nearly
+    half of all the game's (532 MB)**. Added: `MaxWindowFps` (60: the nearest window no longer redraws on every
+    frame of a 120 fps game), `HalfResSecondaries` (on: the loader drops the top mip level of the other
+    viewpoints' pictures, about 35 MB per near window). Still to do if memory matters at hubs: far windows (primary
+    only, 85 MB each) loaded without their top mip level and reloaded on approach. **Untested.**
+54. 2026-09-18, Max on his server (world 754720490), night: "this looks a little odd": bright green blocks in a dark
+    window. Dump 144544: the live grass, far brighter than the night picture around it. The window draws grass
+    bare (no fog, no ambient occlusion, no shadows; the window camera has no post stack), the picture has all
+    three baked in, and at night they are most of the darkness. `Capture.MeasureGrassGain`: at capture time a
+    160 px view forward-and-down is rendered bare without grass, bare with grass (clutter layer added to the
+    mask, shadows off, HDR off: as the window will draw it) and through the colour camera with grass (as the game
+    shows it); over the pixels the first two differ in, the ratio game/bare in linear light is the capture's
+    `grassGain` (meta, point 0; logged as "grass here is r g b times as bright"). `GrassSet.Draw` applies it to
+    `_Color` through a MaterialPropertyBlock (the game's material stays untouched). Needs a recapture; without
+    grass in the test view the gain stays 1. **Untested**; if the log line shows a gain near 1 at night the
+    cause is elsewhere (the window camera's lighting of the grass, e.g. HDR off).
+55. 2026-09-18, Max: "issues with big portals rendering small portals and vice versa" (no screenshot; assumed
+    cause: the far ring was matched to the near ring centre to centre, so with a stone portal (opening 4.4 m,
+    centre 2.36 m up) paired with a wooden one (2.8 m, centre about 1.3 m up) the far ground sat about 0.8 m
+    above or below the near ground). The capture now records `ringHeight` (meta, per point) and `Refresh` shifts
+    `anchor0` by up * (farH - nearH) / 2: lower edges matched, far world at its own size. Old captures (no
+    ringHeight) behave as before. If Max means something else (scale, the pane showing the far portal's
+    surroundings beside a small ring), ask for a screenshot and a numpad-5 dump.
+    "the grass was popping in and out as i walked up to the portal": it was switched on at
+    SecondaryViewpointRange + 4 m. Now drawn from + 12 m and grown out of the ground over the next 8 m
+    (`GrassSet.Draw(..., grow)`, a y scale on each instance). **Both untested.**
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

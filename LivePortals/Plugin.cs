@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "Immersive Portals";
-        public const string VERSION = "0.9.22";
+        public const string VERSION = "0.9.23";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -83,6 +83,9 @@ namespace LivePortals
         internal static ConfigEntry<float> SecondaryViewpointRange;
         internal static ConfigEntry<int> GrassMaxInstances;
         internal static ConfigEntry<bool> PerfLog;
+        internal static ConfigEntry<float> CaptureFrameBudgetMs;
+        internal static ConfigEntry<bool> HalfResSecondaries;
+        internal static ConfigEntry<int> MaxWindowFps;
         internal static ConfigEntry<int> RenderEveryNFrames;
         internal static ConfigEntry<bool> DebugLog;
 
@@ -193,6 +196,9 @@ namespace LivePortals
                     new AcceptableValueRange<float>(0f, 2f)));
             CaptureFolder = Config.Bind("3. Capture", "CaptureFolder", "",
                 "Where captures are stored. Empty = a LivePortals folder in the game's own data folder (next to your worlds and characters), outside any mod-manager profile, so sharing a profile does not carry hundreds of megabytes of pictures.");
+            CaptureFrameBudgetMs = Config.Bind("3. Capture", "CaptureFrameBudgetMs", 10f,
+                new ConfigDescription("During a capture, no further cube face is started in a frame that has already spent this long on faces, milliseconds (one face always is). Lower = smoother frames and a longer capture.",
+                    new AcceptableValueRange<float>(0f, 100f)));
             CaptureFacesPerFrame = Config.Bind("3. Capture", "CaptureFacesPerFrame", 2,
                 new ConfigDescription("Cube faces rendered per frame during a capture (four renders each). Fewer = smoother frames, more frames for the capture, and things that move can differ between faces.",
                     new AcceptableValueRange<int>(1, 24)));
@@ -252,6 +258,11 @@ namespace LivePortals
                 new ConfigDescription("Most grass tufts drawn through a window (the nearest to the far portal). 0 = no live grass.",
                     new AcceptableValueRange<int>(0, 60000)));
             PerfLog = Config.Bind("5. Performance", "PerfLog", false, "Log each window's render time every 10 s.");
+            HalfResSecondaries = Config.Bind("5. Performance", "HalfResSecondaries", true,
+                "Load the extra viewpoints' pictures at half resolution. They only fill in the slivers the main viewpoint could not see; about 35 MB less video memory per nearby window.");
+            MaxWindowFps = Config.Bind("5. Performance", "MaxWindowFps", 60,
+                new ConfigDescription("The nearest window is redrawn at most this often while you move (the others 30 times a second). A redraw is 1 to 2 ms of the main thread; at 120 fps and up, redrawing every frame doubles that cost for a difference nobody sees.",
+                    new AcceptableValueRange<int>(20, 500)));
             DebugLog = Config.Bind("6. Debug", "DebugLog", false, "Verbose logging of captures and windows. With TuneKeys it also enables numpad + - * / (diagnostics that switch the picture's draw order, the depth plug, and the game's ambient occlusion and post-processing).");
 
             _harmony = new Harmony(GUID);
@@ -339,7 +350,7 @@ namespace LivePortals
             if (PerfLog.Value && Time.time - _perfAt > 10f)
             {
                 float span = _perfAt > 0f ? Time.time - _perfAt : 10f;
-                Log.LogInfo($"LivePortals perf: {PortalWindow.All.Count} windows exist, {PortalWindow.PerfRenders / span:0.0} window renders/s costing {PortalWindow.PerfMs / span:0.0} ms per second of main-thread time, game {1f / Mathf.Max(0.0001f, Time.smoothDeltaTime):0} fps");
+                Log.LogInfo($"LivePortals perf: {PortalWindow.All.Count} windows exist, {PortalWindow.PerfRenders / span:0.0} window renders/s costing {PortalWindow.PerfMs / span:0.0} ms per second of main-thread time, game {1f / Mathf.Max(0.0001f, Time.smoothDeltaTime):0} fps, all textures in the game {Texture.currentTextureMemory / 1048576UL} MB of {SystemInfo.graphicsMemorySize} MB video memory, of which the windows' captures about {PortalWindow.CaptureMegabytes():0} MB");
                 PortalWindow.PerfRenders = 0; PortalWindow.PerfMs = 0; _perfAt = Time.time;
             }
             _wanting.Clear();

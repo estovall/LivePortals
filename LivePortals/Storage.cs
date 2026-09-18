@@ -164,6 +164,8 @@ namespace LivePortals
             job.Lines.Add(pre + "avgLocalLum=" + pt.AverageLocalLuminance.ToString("R", CultureInfo.InvariantCulture));
             job.Lines.Add(pre + "avgAmbientLum=" + pt.AverageAmbientLuminance.ToString("R", CultureInfo.InvariantCulture));
             job.Lines.Add(pre + "avgColor=" + C(pt.AverageColor));
+            job.Lines.Add(pre + "grassGain=" + C(pt.GrassGain));
+            job.Lines.Add(pre + "ringHeight=" + pt.RingHeight.ToString("R", CultureInfo.InvariantCulture));
         }
 
         internal static void Finish(Job job, int points, long takenAt)

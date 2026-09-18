@@ -77,7 +77,7 @@ namespace LivePortals
                         Plugin.Log.LogInfo($"LivePortals: viewpoint {offsets[k]} is inside or behind something here, skipped.");
                         continue;
                     }
-                    var pt = new RawPoint { Offset = offsets[k], Res = _rig.Res, Step = _rig.Step, DepthRange = _rig.DepthRange, FaceTan = Capture.FaceTan };
+                    var pt = new RawPoint { RingHeight = shape.Height, Offset = offsets[k], Res = _rig.Res, Step = _rig.Step, DepthRange = _rig.DepthRange, FaceTan = Capture.FaceTan };
                     Lighting.Sample(out pt.Sun, out pt.Ambient, out pt.Fog, out pt.DayFraction);
                     _points.Add(pt);
                     Vector3 pos = centre + rot * offsets[k] + forward;
@@ -88,6 +88,7 @@ namespace LivePortals
                     }
                 }
                 _grass = GrassSet.Record(centre, rot);
+                if (_points.Count > 0 && _grass != null && _grass.Count > 0) _points[0].GrassGain = Capture.MeasureGrassGain(_rig, centre + forward, rot);
                 if (Plugin.LiveFire.Value) _fire = FireSet.Record(centre, rot, _hidden.Fire);
             }
             finally { _hidden.Show(); }
@@ -108,7 +109,11 @@ namespace LivePortals
                 _hidden.Hide();
                 try
                 {
-                    for (int n = 0; n < perFrame && _issued < _faces.Count; n++, _issued++) Capture.RenderFace(_rig, _faces[_issued]);
+                    // At most perFrame faces, and no further face once this frame has spent its budget: a face is five
+                    // or six camera renders, 25 ms on a middling machine, and two of them back to back is a frame
+                    // at 20 fps, eleven times in a row.
+                    float budget = Plugin.CaptureFrameBudgetMs.Value / 1000f;
+                    for (int n = 0; n < perFrame && _issued < _faces.Count && (n == 0 || Time.realtimeSinceStartup - t0 < budget); n++, _issued++) Capture.RenderFace(_rig, _faces[_issued]);
                 }
                 catch (Exception e) { Fail("render failed: " + e.Message); }
                 finally { _hidden.Show(); }

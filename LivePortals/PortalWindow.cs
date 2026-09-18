@@ -81,7 +81,8 @@ namespace LivePortals
         private GameObject _bloom;
         private MeshRenderer _bloomRenderer;
         private Material _bloomMat;
-        private bool _bloomShown;
+        private bool _bloomShown, _fireInView;
+        private int _bloomTick;
 
         private bool _built, _visible, _suppressed;
         private int _frame;
@@ -298,6 +299,11 @@ namespace LivePortals
             Quaternion map = glass ? Quaternion.identity : rB * Flip * Quaternion.Inverse(rA);
             if (glass) rB = rA;
             Vector3 anchor0 = pe - map * (pe - c);
+            // A big ring paired with a small one (stone and wood): matched centre to centre, the far side's ground came
+            // out a metre above or below this side's. Match the rings' lower edges instead, which is where the ground
+            // is at both: the far world keeps its size and continues this side's floor.
+            float farH = _set.Primary != null ? _set.Primary.RingHeight : 0f;
+            if (!glass && farH > 0.5f) anchor0 += (rB * Vector3.up) * ((farH - h) * 0.5f);
             const float ds = 1f; // the relief is metric; the DepthScale knob of the ray-depth days only ever made it wrong
             for (int k = 0; k < _reliefs.Count; k++)
             {
@@ -383,6 +389,27 @@ namespace LivePortals
             WantsRender = !_hiddenForCapture && ShouldRender(main, pe, alpha, wantDump);
         }
 
+        /// <summary>For the perf log: what the loaded captures hold in textures, all windows together.</summary>
+        internal static float CaptureMegabytes()
+        {
+            long bytes = 0;
+            foreach (var w in All)
+            {
+                if (w == null || w._set == null) continue;
+                foreach (var cap in w._set.Captures)
+                {
+                    if (cap == null) continue;
+                    for (int i = 0; i < 6; i++)
+                    {
+                        bytes += Size(cap.Faces[i]) + Size(cap.Fronts[i]) + Size(cap.Locals[i]) + Size(cap.LocalsFront[i]) + Size(cap.Ambients[i]) + Size(cap.AmbientsFront[i]);
+                    }
+                }
+            }
+            return bytes / 1048576f;
+        }
+
+        private static long Size(Texture2D t) => t == null ? 0 : (long)t.width * t.height * 4 * 4 / 3;
+
         private void PushTints()
         {
             foreach (var rl in _reliefs)
@@ -408,10 +435,24 @@ namespace LivePortals
         /// stand well above white in the game's frame, and its bloom glows around them as around a real fire.
         /// The picture itself is 8 bits and tops out at white, which blooms like a sheet of paper.
         /// </summary>
+        private static readonly Plane[] _firePlanes = new Plane[6];
+
+        /// <summary>Whether any of the flame copies lies in what the window camera sees from here.</summary>
+        private bool FireInView()
+        {
+            if (_fire.Count == 0 || _cam == null) return false;
+            GeometryUtility.CalculateFrustumPlanes(_cam, _firePlanes);
+            foreach (var fr in _fire)
+                if (fr != null && GeometryUtility.TestPlanesAABB(_firePlanes, fr.bounds)) return true;
+            return false;
+        }
+
         private void RenderBloom()
         {
-            bool want = _bloomRt != null && _fire.Count > 0 && Dissolve.Reveal(_alphaNow) >= 0.999f && _eyeDist < 40f;
+            bool want = _bloomRt != null && FireInView() && Dissolve.Reveal(_alphaNow) >= 0.999f && _eyeDist < 40f;
             if (!want) { _bloomShown = false; return; }
+            // The glow is a blur of something that flickers: every other redraw is plenty, and it is a whole camera pass.
+            if (_bloomShown && (_bloomTick++ & 1) == 1) return;
             var target = _cam.targetTexture; Color bg = _cam.backgroundColor;
             try
             {
@@ -462,7 +503,12 @@ namespace LivePortals
             QualitySettings.shadowDistance = 0f;
             try
             {
-                if (_eyeDist <= Plugin.SecondaryViewpointRange.Value + 4f) _set.Grass?.Draw(_cam, Matrix4x4.TRS(anchor0, rB, Vector3.one));
+                // The grass is only drawn from near by (far off it is smaller than a pixel of the window and thousands
+                // of instances). It grows out of the ground over the last eight metres of the approach; switched
+                // on at one distance it popped in, and out again with every step back.
+                float grassFrom = Plugin.SecondaryViewpointRange.Value + 12f;
+                if (_eyeDist <= grassFrom)
+                    _set.Grass?.Draw(_cam, Matrix4x4.TRS(anchor0, rB, Vector3.one), _set.Primary.GrassGain, Mathf.Clamp01((grassFrom - _eyeDist) / 8f));
                 SetReliefsEnabled(true, true);
                 _cam.Render();
                 SetReliefsEnabled(true, false);
@@ -621,12 +667,16 @@ namespace LivePortals
                 float thr = Mathf.Max(0.003f, _eyeDist * (Rank == 0 ? 0.0007f : 0.002f));
                 bool moved = float.IsNaN(_lastEye.x) || (pe - _lastEye).sqrMagnitude > thr * thr || Mathf.Abs(alpha - _lastAlpha) > 0.002f;
                 // Flames move on their own: a still eye gets thirty pictures a second of them, up close.
-                float stillFor = _fire.Count > 0 && _eyeDist < 25f ? 1f / 30f : 0.5f;
+                // Only while a fire is actually in the picture: a window that merely has one somewhere behind the far
+                // ring stays as cheap as any other.
+                _fireInView = FireInView();
+                float stillFor = _fireInView && _eyeDist < 25f ? 1f / 30f : 0.5f;
                 if (!moved && since < stillFor) { _skips++; return false; }
             }
             // Cadence: the nearest window follows the eye every frame (a redraw is about 2 ms); the others thirty
             // times a second, taking turns for the rest of the frame's budget.
-            float interval = Rank == 0 ? 0f : 1f / 30f;
+            // (A touch under the period, so that at twice the rate it is every second frame and not every third.)
+            float interval = Rank == 0 ? 0.9f / Mathf.Max(20, Plugin.MaxWindowFps.Value) : 1f / 30f;
             if (since < interval) { _skips++; return false; }
             if (Plugin.PerfLog.Value && Time.time - _perfLogTime > 10f)
             {

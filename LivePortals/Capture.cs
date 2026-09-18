@@ -34,6 +34,8 @@ namespace LivePortals
         public float AverageLuminance = 0.3f; // of the forward face, geometry only, for the spill light
         public float AverageLocalLuminance;   // the part of it that is not sunlight, and so does not follow the time of day
         public float AverageAmbientLuminance = -1f; // the part of it lit by the sky alone; -1 when not captured
+        public Color GrassGain = Color.white;       // what the window's grass is multiplied by (light, per channel); see Capture.MeasureGrassGain
+        public float RingHeight;                    // height of the opening the capture was taken in, metres; 0 = not recorded
         public Color AverageColor = Color.white;
 
         public void Destroy()
@@ -169,6 +171,8 @@ namespace LivePortals
         public float AverageLuminance = 0.3f;
         public float AverageLocalLuminance;
         public float AverageAmbientLuminance = -1f;
+        public Color GrassGain = Color.white;
+        public float RingHeight;
         public Color AverageColor = Color.white;
         public float SkyFraction, DiffFraction, MedianDepth; // of the forward face, for the log
     }
@@ -390,6 +394,73 @@ namespace LivePortals
             Object.Destroy(mat);
         }
 
+        /// <summary>
+        /// The window draws the far side's grass itself, bare: no fog, no ambient occlusion, no shadows. The picture
+        /// around it has all three baked in, and at night that is most of what makes it dark: the grass stood in
+        /// the window as bright green blocks. So here, where the grass is and in the light it is in, a small view
+        /// of it is rendered both ways, as the game shows it and as the window will, and the ratio over the pixels
+        /// that are grass goes with the capture. Four small renders read on the spot, once per capture.
+        /// </summary>
+        internal static Color MeasureGrassGain(Rig rig, Vector3 pos, Quaternion rot)
+        {
+            int clutter = LayerMask.NameToLayer("InstanceRenderer");
+            if (clutter < 0) return Color.white;
+            const int n = 160;
+            var rt = RenderTexture.GetTemporary(n, n, 24, RenderTextureFormat.ARGB32);
+            var tex = new Texture2D(n, n, TextureFormat.RGBA32, false);
+            Quaternion look = rot * Quaternion.Euler(30f, 0f, 0f); // forward and down: where the grass is
+            float shadows = QualitySettings.shadowDistance; bool fog = RenderSettings.fog;
+            int maskBare = rig.Cam.cullingMask, maskCol = rig.ColorCam.cullingMask;
+            bool hdrBare = rig.Cam.allowHDR;
+            try
+            {
+                Color32[] Shot(Camera cam, bool grass, bool bare)
+                {
+                    cam.transform.SetPositionAndRotation(pos, look);
+                    cam.cullingMask = grass ? (bare ? maskBare : maskCol) | (1 << clutter) : (bare ? maskBare : maskCol);
+                    RenderSettings.fog = !bare && rig.FogOn;
+                    QualitySettings.shadowDistance = bare ? 0f : shadows;
+                    if (bare) cam.allowHDR = false;
+                    cam.backgroundColor = Color.black;
+                    cam.targetTexture = rt; cam.Render(); cam.targetTexture = null;
+                    RenderTexture.active = rt;
+                    tex.ReadPixels(new Rect(0, 0, n, n), 0, 0, false);
+                    RenderTexture.active = null;
+                    return tex.GetPixels32();
+                }
+                var bareNo = Shot(rig.Cam, false, true);
+                var bareWith = Shot(rig.Cam, true, true);
+                var gameWith = Shot(rig.ColorCam, true, false);
+                double br = 0, bg = 0, bb = 0, gr = 0, gg = 0, gb = 0; int count = 0;
+                for (int p = 0; p < bareNo.Length; p++)
+                {
+                    Color32 a = bareNo[p], b = bareWith[p];
+                    if (Mathf.Abs(a.r - b.r) + Mathf.Abs(a.g - b.g) + Mathf.Abs(a.b - b.b) < 24) continue; // not grass
+                    Color32 g = gameWith[p];
+                    br += Srgb.Lin[b.r]; bg += Srgb.Lin[b.g]; bb += Srgb.Lin[b.b];
+                    gr += Srgb.Lin[g.r]; gg += Srgb.Lin[g.g]; gb += Srgb.Lin[g.b];
+                    count++;
+                }
+                if (count < n * n / 100) return Color.white; // hardly any grass in view: leave it alone
+                float Gain(double game, double bare) => Mathf.Clamp((float)(game / System.Math.Max(1e-4, bare)), 0.03f, 1.5f);
+                var gain = new Color(Gain(gr, br), Gain(gg, bg), Gain(gb, bb), 1f);
+                Plugin.Log.LogInfo($"LivePortals: grass here is {gain.r:0.00} {gain.g:0.00} {gain.b:0.00} times as bright in the game as drawn bare ({count * 100 / (n * n)}% of a test view is grass)");
+                return gain;
+            }
+            catch (System.Exception e)
+            {
+                Plugin.Dbg("grass gain not measured: " + e.Message);
+                return Color.white;
+            }
+            finally
+            {
+                rig.Cam.cullingMask = maskBare; rig.ColorCam.cullingMask = maskCol; rig.Cam.allowHDR = hdrBare;
+                RenderSettings.fog = fog; QualitySettings.shadowDistance = shadows;
+                RenderTexture.ReleaseTemporary(rt);
+                Object.Destroy(tex);
+            }
+        }
+
         internal static void EnsureProbed(Rig rig, Vector3 pos, Quaternion rot)
         {
             if (_method == DepthMethod.Unknown) Probe(rig, pos, rot);
@@ -571,9 +642,20 @@ namespace LivePortals
                 Shader.SetGlobalColor(SunColorId, Color.black);
                 if (keepSky)
                 {
-                    RenderSettings.fog = rig.FogOn;
-                    cam.backgroundColor = RenderSettings.fogColor;
-                    cam.targetTexture = rig.Color; cam.Render(); cam.targetTexture = null;
+                    // With the fog at work but black: what comes out is the sky-lit surfaces as the fog lets them
+                    // through, and nothing of the fog's own colour. That colour stays in the rest of the picture,
+                    // which dims with the sun. (First 0.9.22: fog in its day colour counted as sky-lit, and at
+                    // night everything far off stood there pale, "white ghostly stuff in the distance".)
+                    Color fogColor = RenderSettings.fogColor;
+                    try
+                    {
+                        RenderSettings.fog = rig.FogOn;
+                        RenderSettings.fogColor = Color.black;
+                        Shader.SetGlobalColor(SunFogId, Color.black);
+                        cam.backgroundColor = Color.black;
+                        cam.targetTexture = rig.Color; cam.Render(); cam.targetTexture = null;
+                    }
+                    finally { RenderSettings.fogColor = fogColor; }
                 }
                 else
                 {
@@ -707,13 +789,14 @@ namespace LivePortals
                 // show their own colour whatever lights are on. The "torches only" render shows them as bright as
                 // the picture does, and the window added them to the picture a second time (a foggy night capture:
                 // pale slabs with straight edges where a baked stretch of sky met the live one). No torch reaches
-                // that far: nothing of them is local light, all of it is the sky's.
+                // that far: nothing of them is local light. Nor are they sky-lit surfaces: like the fog in front of
+                // them they dim with the rest of the picture.
                 float farAway = depthRange * 0.999f;
                 for (int p = 0; p < res * res; p++)
                 {
                     if (sky[p] || raw.Depth[p] < farAway) continue;
                     if (local != null) local[p] = new Color32(0, 0, 0, 255);
-                    if (ambient != null) { Color32 c = col[p]; ambient[p] = new Color32(c.r, c.g, c.b, 255); }
+                    if (ambient != null) ambient[p] = new Color32(0, 0, 0, 255);
                 }
             }
             if (raw.Depth != null && f.FlameMask != null && f.ProxyGpu != null)

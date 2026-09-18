@@ -87,6 +87,8 @@ namespace LivePortals
                     if (meta.TryGetValue(pre + "avgLocalLum", out var all)) float.TryParse(all, NumberStyles.Float, CultureInfo.InvariantCulture, out cap.AverageLocalLuminance);
                     if (meta.TryGetValue(pre + "avgAmbientLum", out var aal)) float.TryParse(aal, NumberStyles.Float, CultureInfo.InvariantCulture, out cap.AverageAmbientLuminance);
                     if (meta.TryGetValue(pre + "avgColor", out var ac)) cap.AverageColor = Storage.P(ac);
+                    if (meta.TryGetValue(pre + "grassGain", out var gg)) cap.GrassGain = Storage.P(gg);
+                    if (meta.TryGetValue(pre + "ringHeight", out var rh)) float.TryParse(rh, NumberStyles.Float, CultureInfo.InvariantCulture, out cap.RingHeight);
                     if (meta.TryGetValue(pre + "offset", out var os)) offset = Storage.PV(os);
                     set.Captures.Add(cap);
                     set.Offsets.Add(offset);
@@ -95,7 +97,10 @@ namespace LivePortals
                         var g = cap.Grids[i];
                         if (g == null) continue;
                         int face = i, point = p;
-                        if (!QueueTexture(Storage.FacePath(_dir, _key, p, i), t => cap.Faces[face] = t)) { _error = "face " + i + " of point " + p + " missing or unreadable"; return; }
+                        // The other viewpoints only fill in what the primary could not see, slivers beside near things:
+                        // half resolution there is 35 MB less per window (measured 2026-09-18: two fully loaded
+                        // windows held 245 MB, nearly half of all the textures in the game).
+                        if (!QueueTexture(Storage.FacePath(_dir, _key, p, i), t => cap.Faces[face] = t, p > 0 && Plugin.HalfResSecondaries.Value)) { _error = "face " + i + " of point " + p + " missing or unreadable"; return; }
                         // The foreground is drawn from the primary viewpoint only (see PortalWindow.BuildReliefs).
                         if (p == 0) QueueTexture(Storage.FrontPath(_dir, _key, p, i), t => cap.Fronts[face] = t);
                         if (p == 0 && WindowMaterial.AdditiveWorks)
@@ -131,7 +136,7 @@ namespace LivePortals
         }
 
         /// <summary>Decode and prepare one PNG on this thread and queue its upload. False when the file is missing or broken.</summary>
-        private bool QueueTexture(string path, Action<Texture2D> into)
+        private bool QueueTexture(string path, Action<Texture2D> into, bool half = false)
         {
             if (!File.Exists(path)) return false;
             byte[] file = File.ReadAllBytes(path);
@@ -140,6 +145,14 @@ namespace LivePortals
             {
                 if (_opaque) for (int i = 3; i < pixels.Length; i += 4) pixels[i] = pixels[i] >= 100 ? (byte)255 : (byte)0;
                 byte[] chain = Mips.Chain(pixels, w, h, out int levels);
+                if (half && w >= 128 && h >= 128 && levels > 1)
+                {
+                    // Without the top level: a quarter of the memory and of the upload.
+                    int top = w * h * 4;
+                    var rest = new byte[chain.Length - top];
+                    Array.Copy(chain, top, rest, 0, rest.Length);
+                    chain = rest; w >>= 1; h >>= 1; levels--;
+                }
                 _items.Add(() => into(Upload(chain, w, h, levels)));
                 return true;
             }

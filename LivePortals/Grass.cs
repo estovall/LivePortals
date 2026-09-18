@@ -163,14 +163,33 @@ namespace LivePortals
         }
 
         /// <summary>Queue the grass for this camera, this frame. anchor: where the far ring's centre and rotation sit in front of the viewer.</summary>
-        internal void Draw(Camera cam, Matrix4x4 anchor)
+        /// <param name="gain">How much of its light the grass keeps, per channel (Capture.MeasureGrassGain): the fog, occlusion and shadow the game would lay on it over there.</param>
+        /// <param name="grow">0..1: how tall the blades stand (they grow in as the viewer comes near).</param>
+        internal void Draw(Camera cam, Matrix4x4 anchor, Color gain, float grow = 1f)
         {
+            if (grow <= 0.01f) return;
+            bool scaled = grow < 0.999f;
+            Matrix4x4 squash = Matrix4x4.Scale(new Vector3(1f, grow, 1f));
+            bool dim = Mathf.Abs(gain.r - 1f) + Mathf.Abs(gain.g - 1f) + Mathf.Abs(gain.b - 1f) > 0.03f;
             foreach (var g in Groups)
             {
                 if (g.Mesh == null || g.Material == null || g.World == null) continue;
-                for (int k = 0; k < g.Local.Length; k++) g.World[k] = anchor * g.Local[k];
-                Graphics.DrawMeshInstanced(g.Mesh, 0, g.Material, g.World, g.World.Length, null, ShadowCastingMode.Off, false, Plugin.FaceLayer, cam);
+                if (scaled) for (int k = 0; k < g.Local.Length; k++) g.World[k] = anchor * g.Local[k] * squash;
+                else for (int k = 0; k < g.Local.Length; k++) g.World[k] = anchor * g.Local[k];
+                MaterialPropertyBlock block = null;
+                if (dim && g.Material.HasProperty("_Color"))
+                {
+                    // The game's own material, untouched: the colour goes in a property block. Colours are given in
+                    // display values, the gain is in light.
+                    if (_block == null) _block = new MaterialPropertyBlock();
+                    Color c = g.Material.color;
+                    _block.SetColor("_Color", new Color(c.r * Mathf.LinearToGammaSpace(gain.r), c.g * Mathf.LinearToGammaSpace(gain.g), c.b * Mathf.LinearToGammaSpace(gain.b), c.a));
+                    block = _block;
+                }
+                Graphics.DrawMeshInstanced(g.Mesh, 0, g.Material, g.World, g.World.Length, block, ShadowCastingMode.Off, false, Plugin.FaceLayer, cam);
             }
         }
+
+        private static MaterialPropertyBlock _block;
     }
 }

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.23 (TESTING: on the `testing` branch only, not published)
+
+Not yet better than 0.9.22. Everything here is unconfirmed in game.
+
+- Night: far hills, fog and baked sky no longer stand pale ("white ghostly stuff in the distance"): the sky-light pass is rendered with black fog, so the fog's own colour is not counted as sky-lit. Needs a recapture.
+- Grass in the window is dimmed by a factor measured at capture time (how the game shows grass there, with fog, occlusion and shadows, against how the window draws it, bare). At night it stood in the window as bright green blocks. Needs a recapture.
+- Grass grows in over the last 8 m of the approach instead of popping in at 16 m.
+- A big ring paired with a small one (stone and wood): the rings' lower edges are matched instead of their centres, so the far ground continues this side's. Needs a recapture of both ends.
+- Performance (each can be switched back in the config): the nearest window redraws at most `MaxWindowFps` (60) times a second; the extra viewpoints' pictures load at half resolution (`HalfResSecondaries`); a capture frame starts no second face once the first took `CaptureFrameBudgetMs` (10); a window with fire redraws for a still eye, and runs the bloom pass, only while a flame is in view, and the bloom pass runs on every other redraw. `PerfLog` also reports texture memory.
+
 ## 0.9.22
 
 - Night no longer blacks the window out. The capture now also records what the sky's light alone contributes (`CaptureSkyLight`, one more render per face of the main viewpoint). The window dims the sunlit part of the picture with the sun, which at night falls to about a tenth, and the sky-lit part with the ambient light, which falls to about a third. Before, one number, driven mostly by the sun, dimmed everything. Needs a fresh capture of each portal; older captures behave as before.
