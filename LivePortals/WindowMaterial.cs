@@ -117,7 +117,13 @@ namespace LivePortals
         private static Texture2D _noise;
 
         /// <summary>The black, depth-writing, dissolving plug behind the picture, or null when no tested shader is available (then the caller keeps the sprite alone).</summary>
-        internal static Material MakePlug()
+        internal static Material MakePlug() => MakePane(null);
+
+        /// <summary>
+        /// The pane as one solid emissive surface showing rt (how 0.8.12 to 0.9.9 drew it; PaneStyle Emissive), or,
+        /// with rt null, the black plug of PaneStyle Sprite. Null when no tested shader is available.
+        /// </summary>
+        internal static Material MakePane(Texture rt)
         {
             if (_setup == null || !_setup.Emissive) return null;
             if (_noise == null)
@@ -141,8 +147,8 @@ namespace LivePortals
             }
             var m = new Material(_setup.Shader);
             Configure(m, _setup, _noise, 0f);
-            m.SetTexture(_setup.EmissionMap, null);
-            m.SetColor(_setup.EmissionColor, Color.black);
+            m.SetTexture(_setup.EmissionMap, rt);
+            m.SetColor(_setup.EmissionColor, rt != null ? Color.white : Color.black);
             return m;
         }
 

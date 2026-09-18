@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.15
+
+- New setting `PaneStyle`: `Sprite` (the 0.9.10 way, bright at night) or `Emissive` (the pane exactly as 0.8.12 to 0.9.9 drew it). If the new pane misbehaves, `Emissive` gives back the long-tested look, with its night darkening.
+- Flames and torchlight capture have their own switches already (`CaptureFlames`, `CaptureLocalLight`).
+
 ## 0.9.14
 
 - The window fades in cleanly again. The picture fades over the real scene as you approach; the black plug behind it now appears only under the last part of the fade, when the picture already covers it, instead of dissolving in blocky holes the whole way.

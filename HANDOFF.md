@@ -352,6 +352,12 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
 37. 0.9.14: Max, "showing up both transparent and pixelated" (mid-fade screenshot): plug dissolving (64x64 point
     noise = blocky) under a half-alpha sprite. Now the sprite alpha = fade, the plug's `SetPaneVisible` gets
     (alpha-0.85)/0.15 so it only cuts in under the last 15%. **Untested.**
+38. 0.9.15: Max: "we have regressed a bunch here". Honest tally: 0.9.10 (plug+sprite) caused the black ring at
+    angles (swirl sort, fixed 0.9.13) and the blocky half-transparent fade (fixed 0.9.14); 0.9.11 (flame depth)
+    caused the pillar chunks (fixed 0.9.12). He was still on 0.9.11 while reporting, none of the fixes seen yet.
+    Added `PaneStyle` (Sprite = new, Emissive = 0.9.7 pane via `WindowMaterial.MakePane(rt)`), so the new pane can
+    be backed out per user. Do not add more until 0.9.15 is confirmed at: day approach fade, angles, night,
+    pillars after a recapture, misty weather.
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

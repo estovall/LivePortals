@@ -444,6 +444,7 @@ namespace LivePortals
             _rt.Create();
             _cam.targetTexture = _rt;
             if (_overlayMat != null) _overlayMat.mainTexture = _rt;
+            if (_overlay == null) WindowMaterial.SetPaneTexture(_paneMat, _rt);
         }
 
         private void SetReliefsEnabled(bool on)
@@ -598,7 +599,8 @@ namespace LivePortals
             // 0.8.12 to 0.9.9 showed the picture on the plug itself, as emission, and at night the ambient
             // occlusion pass darkened it to nothing (a mirrored disc hands it inside-out normals). Without a
             // tested shader there is no plug and the sprite stands alone, as before 0.8.12.
-            _paneMat = WindowMaterial.MakePlug();
+            bool legacy = Plugin.PaneStyle.Value == PaneStyleOption.Emissive;
+            _paneMat = legacy ? WindowMaterial.MakePane(_rt) : WindowMaterial.MakePlug();
             _paneSolid = _paneMat != null;
             if (!_paneSolid)
             {
@@ -606,7 +608,7 @@ namespace LivePortals
                 _paneMat.mainTexture = _rt;
             }
             _paneRenderer.sharedMaterial = _paneMat;
-            if (_paneSolid)
+            if (_paneSolid && !legacy)
             {
                 _overlay = new GameObject("LivePortals_Picture");
                 _overlay.transform.SetParent(_pane.transform, false);

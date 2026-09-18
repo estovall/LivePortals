@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "Immersive Portals";
-        public const string VERSION = "0.9.14";
+        public const string VERSION = "0.9.15";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -44,6 +44,7 @@ namespace LivePortals
         internal static ConfigEntry<float> PaneForwardOffset;
         internal static ConfigEntry<bool> PaneRound;
         internal static ConfigEntry<bool> HideSwirl;
+        internal static ConfigEntry<PaneStyleOption> PaneStyle;
         internal static ConfigEntry<bool> TuneKeys;
         internal static ConfigEntry<bool> GlassTest;
         internal static ConfigEntry<bool> ArrivalViewBothSides;
@@ -160,6 +161,8 @@ namespace LivePortals
             OtherCenterHeight = Config.Bind("2. Window", "OtherCenterHeight", 0f,
                 new ConfigDescription("Height of the opening's centre above the base of those portals. 0 = measured.", new AcceptableValueRange<float>(0f, 12f)));
             PaneRound = Config.Bind("2. Window", "PaneRound", true, "Round pane (the ring's shape) instead of a square.");
+            PaneStyle = Config.Bind("2. Window", "PaneStyle", PaneStyleOption.Sprite,
+                "How the picture is put in the ring. Sprite (0.9.10+): a black depth plug with the picture drawn over it after the game's screen effects, which keeps it bright at night. Emissive (0.8.12 to 0.9.9): one solid surface showing the picture as emission; the game's ambient occlusion darkens it at night, but it is the long-tested one.");
             HideSwirl = Config.Bind("2. Window", "HideSwirl", true, "Switch the game's own swirl in the ring off while the window shows (it sits on the same plane and at some angles draws over the picture).");
             TuneKeys = Config.Bind("2. Window", "TuneKeys", true,
                 "Numpad tuning while in game: 8/2 ring height, 4/6 forward offset, 7/9 pane width, 1/3 pane height, . (period) toggles the glass test, 5 prints, saves, and dumps what every visible window drew (BepInEx/config/LivePortals/debug), 0 captures the nearest portal now. Values are saved to this file.");
@@ -484,6 +487,8 @@ namespace LivePortals
             Log.LogInfo($"LivePortals: {why} capture at portal {Storage.Key(id)}: {run.Points.Count} points, {p0.Res}px faces, grid {p0.Res / p0.Step}, {run.FrontFaces} faces with foreground, {run.GrassCount} grass instances, forward face {p0.SkyFraction * 100f:0}% sky ({p0.DiffFraction * 100f:0}% by colour) with median depth {p0.MedianDepth:0.0} m; rendered over {run.RenderFrames} frames ({run.RenderMs:0} ms of them), layered and stored in {run.WorkSeconds:0.0} s.");
         }
     }
+
+    public enum PaneStyleOption { Sprite, Emissive }
 
     internal static class Patches
     {
