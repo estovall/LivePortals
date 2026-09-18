@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.10
+
+- The window is no longer dark at night. The picture was drawn on the pane as emission, and one of the game's opaque-stage screen effects (the ambient occlusion by all signs, which is strongest at night) darkened it to nothing. The pane is now a black depth-writing plug, so fog and mist still see a surface at the portal, with the picture drawn over it as a sprite after those effects have run. Diagnosed with the 0.9.9 keys, which are gone again.
+
 ## 0.9.8
 
 - Torches and fires light the window at night. Each face is also captured with the sun and sky light switched off, which leaves only what torches, fires and glowing things contribute; that part is added on top of the picture untinted, so torchlight stays as bright at night as by day while sunlit parts still follow the time of day. The spill light does the same.

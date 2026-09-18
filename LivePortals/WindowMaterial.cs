@@ -106,8 +106,8 @@ namespace LivePortals
         // fade in by transparency, so it dissolves in: its cut-off runs against a noise texture.
         private static Texture2D _noise;
 
-        /// <summary>A solid pane material showing rt, or null when no tested shader is available (then the caller keeps the sprite).</summary>
-        internal static Material MakePane(Texture rt)
+        /// <summary>The black, depth-writing, dissolving plug behind the picture, or null when no tested shader is available (then the caller keeps the sprite alone).</summary>
+        internal static Material MakePlug()
         {
             if (_setup == null || !_setup.Emissive) return null;
             if (_noise == null)
@@ -131,7 +131,8 @@ namespace LivePortals
             }
             var m = new Material(_setup.Shader);
             Configure(m, _setup, _noise, 0f);
-            m.SetTexture(_setup.EmissionMap, rt);
+            m.SetTexture(_setup.EmissionMap, null);
+            m.SetColor(_setup.EmissionColor, Color.black);
             return m;
         }
 

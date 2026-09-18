@@ -324,6 +324,16 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     for "local-light layer via <shader>" (if "NO additive shader passed", torchlight still follows the sun and the
     flames alone come back); check that the local pass really has no sun (a sunlit wall should be black in
     `_l` PNGs) and that flames are not smeared.
+33. 0.9.9/0.9.10, night-dark window. Max's night screenshots: solid pane black, while numpad-5 dumps showed the
+    window texture bright. 0.9.9 diagnostics (numpad * post-processing, - fog effect, + pane mode): sprite pane
+    bright, additive pane bright, solid pane dark, fog off still dark, post-processing off bright. So an
+    opaque-stage screen effect (Amplify Occlusion in PostEffect mode most likely; the mirrored disc gives it
+    inside-out normals) multiplies the emissive pane; transparents drawn after it are untouched. 0.9.10: the
+    pane is a black plug (`WindowMaterial.MakePlug`, emission black, still dissolves by `_Cutoff`) for depth, and
+    `_overlay` (Sprites/Default, same mesh, 1 cm toward the viewer, alpha = dissolve) shows the RT on top in the
+    transparent stage. Diagnostics removed. **Untested**: night look; misty weather (the plug should keep the
+    mist from painting over the ring, the 0.8.12 problem); the dissolve-in now fades the sprite while the plug
+    cuts out underneath.
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

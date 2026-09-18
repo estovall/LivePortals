@@ -51,6 +51,10 @@ namespace LivePortals
         private Renderer _paneRenderer;
         private Material _paneMat;
         private bool _paneSolid;
+        // The picture itself: a sprite drawn over the plug in the transparent stage. See EnsureBuilt.
+        private GameObject _overlay;
+        private Renderer _overlayRenderer;
+        private Material _overlayMat;
         private readonly List<Relief> _reliefs = new List<Relief>();
         private Camera _cam;
         private RenderTexture _rt;
@@ -295,6 +299,12 @@ namespace LivePortals
             _pane.transform.localScale = new Vector3(front ? -w : w, h, 1f);
             if (_paneSolid) WindowMaterial.SetPaneVisible(_paneMat, alpha);
             else _paneMat.color = new Color(1f, 1f, 1f, alpha);
+            if (_overlay != null)
+            {
+                // A hair toward the viewer, so it never fights the plug for the same depth.
+                _overlay.transform.localPosition = new Vector3(0f, 0f, realFront ? 0.01f : -0.01f);
+                _overlayMat.color = new Color(1f, 1f, 1f, alpha);
+            }
 
             // ---- Lighting: tint the captures to now, and spill light onto the viewer's side ----
             _tintTimer -= Time.deltaTime;
@@ -356,7 +366,7 @@ namespace LivePortals
                 SaveWindow("final");
                 // The eye in the primary relief's own frame: what tools/LayerTest needs (EYES=x,y,z) to redraw this view.
                 Vector3 eyeLocal = Quaternion.Inverse(rB) * (pe - (anchor0 + rB * CaptureForward));
-                Plugin.Log.LogInfo($"LivePortals dump: window {Storage.Key(_nview.GetZDO().m_uid)} shows {Storage.Key(target)} ({_reliefs.Count} viewpoints), glass {glass}, front {realFront}, EYES={eyeLocal.x:0.###},{eyeLocal.y:0.###},{eyeLocal.z:0.###} near {near:0.###} far {far:0} frustum l {l:0.####} r {r:0.####} b {b:0.####} t {t:0.####} hdr {_cam.allowHDR} path {_cam.actualRenderingPath} depthBits {_rt.depth} format {_rt.format} material {WindowMaterial.Summary} pane {(_paneSolid ? "solid" : "sprite")} tint {Lighting.Tint(_set.Primary, Plugin.ToneMatch.Value)}");
+                Plugin.Log.LogInfo($"LivePortals dump: window {Storage.Key(_nview.GetZDO().m_uid)} shows {Storage.Key(target)} ({_reliefs.Count} viewpoints), glass {glass}, front {realFront}, EYES={eyeLocal.x:0.###},{eyeLocal.y:0.###},{eyeLocal.z:0.###} near {near:0.###} far {far:0} frustum l {l:0.####} r {r:0.####} b {b:0.####} t {t:0.####} hdr {_cam.allowHDR} path {_cam.actualRenderingPath} depthBits {_rt.depth} format {_rt.format} material {WindowMaterial.Summary} pane {(_paneSolid ? "plug+sprite" : "sprite")} tint {Lighting.Tint(_set.Primary, Plugin.ToneMatch.Value)}");
             }
         }
 
@@ -400,27 +410,6 @@ namespace LivePortals
             catch (System.Exception e) { Plugin.Log.LogWarning("LivePortals: window dump failed: " + e.Message); }
         }
 
-        /// <summary>Diagnostic (numpad +): 0 the solid emissive pane, 1 the old sprite pane, 2 an additive pane. To find what darkens the pane at night.</summary>
-        internal static int PaneMode;
-
-        internal void ApplyPaneMode()
-        {
-            if (_paneRenderer == null || _rt == null) return;
-            Material m = null;
-            bool solid = false;
-            if (PaneMode == 0) { m = WindowMaterial.MakePane(_rt); solid = m != null; }
-            else if (PaneMode == 2 && WindowMaterial.AdditiveWorks) m = WindowMaterial.MakeAdditive(_rt);
-            if (m == null)
-            {
-                m = new Material(FindShader("Sprites/Default", "Unlit/Transparent", "Unlit/Texture"));
-                m.mainTexture = _rt;
-            }
-            if (_paneMat != null) Destroy(_paneMat);
-            _paneMat = m;
-            _paneSolid = solid;
-            _paneRenderer.sharedMaterial = _paneMat;
-        }
-
         /// <summary>Numpad 5 bumps this; every visible window then saves what it drew and logs where the eye was.</summary>
         internal static int DumpRequest;
         private int _dumped;
@@ -446,7 +435,7 @@ namespace LivePortals
             _rt.width = want; _rt.height = want;
             _rt.Create();
             _cam.targetTexture = _rt;
-            WindowMaterial.SetPaneTexture(_paneMat, _rt);
+            if (_overlayMat != null) _overlayMat.mainTexture = _rt;
         }
 
         private void SetReliefsEnabled(bool on)
@@ -594,8 +583,14 @@ namespace LivePortals
             WindowMaterial.EnsureTested(_cam);
             WindowMaterial.ApplyTo(_cam);
 
-            // The pane's material, now that the shader test has run: solid and depth-writing if it can be.
-            _paneMat = WindowMaterial.MakePane(_rt);
+            // The pane is two things. A black, depth-writing plug in the ring (the tested relief shader, dissolving
+            // in by its cut-off), so that everything in the game that works from depth (the fog, the mist, depth
+            // of field) sees a surface at the portal and not the hill behind it. And the picture, a plain sprite
+            // drawn over the plug in the transparent stage, after the game's opaque screen effects have run:
+            // 0.8.12 to 0.9.9 showed the picture on the plug itself, as emission, and at night the ambient
+            // occlusion pass darkened it to nothing (a mirrored disc hands it inside-out normals). Without a
+            // tested shader there is no plug and the sprite stands alone, as before 0.8.12.
+            _paneMat = WindowMaterial.MakePlug();
             _paneSolid = _paneMat != null;
             if (!_paneSolid)
             {
@@ -603,7 +598,19 @@ namespace LivePortals
                 _paneMat.mainTexture = _rt;
             }
             _paneRenderer.sharedMaterial = _paneMat;
-            if (PaneMode != 0) ApplyPaneMode();
+            if (_paneSolid)
+            {
+                _overlay = new GameObject("LivePortals_Picture");
+                _overlay.transform.SetParent(_pane.transform, false);
+                _overlay.AddComponent<MeshFilter>().sharedMesh = Plugin.PaneRound.Value ? _disc : _quad;
+                _overlayRenderer = _overlay.AddComponent<MeshRenderer>();
+                _overlayRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                _overlayRenderer.receiveShadows = false;
+                _overlayRenderer.enabled = false;
+                _overlayMat = new Material(FindShader("Sprites/Default", "Unlit/Transparent", "Unlit/Texture"));
+                _overlayMat.mainTexture = _rt;
+                _overlayRenderer.sharedMaterial = _overlayMat;
+            }
 
             var lightGo = new GameObject("LivePortals_Light");
             _light = lightGo.AddComponent<Light>();
@@ -743,6 +750,7 @@ namespace LivePortals
         {
             bool on = _visible && !_hiddenForCapture;
             if (_paneRenderer != null) _paneRenderer.enabled = on;
+            if (_overlayRenderer != null) _overlayRenderer.enabled = on;
             if (_light != null && !on) _light.enabled = false;
         }
 
@@ -753,6 +761,8 @@ namespace LivePortals
             if (_cam != null) Destroy(_cam.gameObject);
             if (_light != null) Destroy(_light.gameObject);
             if (_paneMat != null) Destroy(_paneMat);
+            if (_overlayMat != null) Destroy(_overlayMat);
+            _overlay = null; _overlayRenderer = null; _overlayMat = null;
             if (_rt != null) { _rt.Release(); Destroy(_rt); }
             _built = false;
         }
