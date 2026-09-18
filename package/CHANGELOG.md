@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.25 (TESTING: on the `testing` branch only, not published)
+
+- No dark outline round the clouds. The live clouds leave the window texture's alpha below one at their soft edges and the picture sprite blends by that alpha, against a black plug. The plug now shows the picture as emission as well, so those edges show the same colour through instead of black.
+
 ## 0.9.24 (TESTING: on the `testing` branch only, not published)
 
 - No more glossy sheen on the window. The game shader the pane and reliefs are drawn with keeps its shine in inputs of its own (`_MetallicGlossMap`, `_MetalColor`), which were left at their defaults, so once the pane had real normals (0.9.22) the torches by the ring reflected off it. Every metal, gloss and specular input of the shader is now black.

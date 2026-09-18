@@ -627,7 +627,7 @@ namespace LivePortals
             _rt.Create();
             _cam.targetTexture = _rt;
             if (_overlayMat != null) _overlayMat.mainTexture = _rt;
-            if (_overlay == null) WindowMaterial.SetPaneTexture(_paneMat, _rt);
+            WindowMaterial.SetPaneTexture(_paneMat, _rt);
         }
 
         private void SetReliefsEnabled(bool under, bool on)
@@ -801,7 +801,11 @@ namespace LivePortals
             // occlusion pass darkened it to nothing (a mirrored disc hands it inside-out normals). Without a
             // tested shader there is no plug and the sprite stands alone, as before 0.8.12.
             bool legacy = Plugin.PaneStyle.Value == PaneStyleOption.Emissive;
-            _paneMat = legacy ? WindowMaterial.MakePane(_rt) : WindowMaterial.MakePlug();
+            // The plug shows the picture as emission too (as the old pane did): the sprite over it blends by the
+            // window texture's alpha, and where the live clouds leave that below one (their soft edges) the plug
+            // fills in the same colour instead of black, which drew a dark outline round every cloud (0.9.10 to
+            // 0.9.24). Everywhere else the sprite covers it, so the plug's own darkening at night cannot show.
+            _paneMat = WindowMaterial.MakePane(_rt);
             _paneSolid = _paneMat != null;
             if (!_paneSolid)
             {

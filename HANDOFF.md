@@ -587,6 +587,12 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     to confirm before touching the tint. Perf at his hub: 8 windows, 28 fps, but the windows cost only 45 ms/s.
     The hand-placed Max-LivePortals folder (0.9.19) sat next to the Gale package Max-Immersive_Portals (0.9.22)
     on this PC; removed. Test DLLs now go into the Gale package folder.
+57. 0.9.25 testing: Max, "weird outline on clouds" (day window, dark rim along every cloud edge). Sprites/Default
+    premultiplies (rgb *= a) and blends over the plug; the live clouds write alpha < 1 into the RT at their soft
+    edges, so those pixels went dark. The plug is now `MakePane(_rt)` (emission = RT) under the sprite instead of
+    black, so at alpha < 1 the same colour shows through. The plug's night darkening can only affect those
+    fringe pixels at weight (1 - a). Alternatives rejected: an RGB-only RT format (float formats show linear as
+    sRGB, the 0.8.7 orange problem), Unlit/Texture (not in the build). **Untested.**
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 
