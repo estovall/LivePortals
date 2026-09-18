@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "Immersive Portals";
-        public const string VERSION = "0.9.19";
+        public const string VERSION = "0.9.20";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -69,6 +69,7 @@ namespace LivePortals
         internal static ConfigEntry<bool> CaptureLocalLight;
         internal static ConfigEntry<bool> CaptureFlames;
         internal static ConfigEntry<bool> CaptureFlameDepth;
+        internal static ConfigEntry<float> FlameMaxSize;
         internal static ConfigEntry<float> GrassGap;
         internal static ConfigEntry<float> PortalLight;
         internal static ConfigEntry<float> PortalLightRange;
@@ -204,6 +205,9 @@ namespace LivePortals
                 "Also capture what torches, fires and glowing things alone contribute, and show that part untinted: torchlight in the window then stays as bright at night as by day, while sunlit parts still follow the time of day.");
             CaptureFlames = Config.Bind("4. Look", "CaptureFlames", true,
                 "Keep the flames of torches and fires in the capture (other particle effects, like smoke and weather, are left out).");
+            FlameMaxSize = Config.Bind("4. Look", "FlameMaxSize", 1f,
+                new ConfigDescription("Largest flame effect kept in the capture, metres across. Torch flames are well under a metre; a hearth or bonfire is bigger and, painted onto the wall behind it, comes out as stretched copies, so it is left out (its light stays).",
+                    new AcceptableValueRange<float>(0.2f, 5f)));
             CaptureFlameDepth = Config.Bind("4. Look", "CaptureFlameDepth", false,
                 "Experimental: give flames the depth of their fire so a hearth sits in the middle of its room instead of on the wall behind it. Off: flames are painted on whatever is behind them (right for wall torches, wrong for a fire in the open). On, it can leave dark blocks next to free-standing torches.");
             GrassGap = Config.Bind("4. Look", "GrassGap", 0.75f,

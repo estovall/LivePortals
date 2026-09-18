@@ -956,7 +956,10 @@ namespace LivePortals
         /// <summary>A particle effect that belongs to a light source and stays small: a flame, embers, sparks. Smoke, mist, weather and the like do not qualify.</summary>
         private static bool IsFlame(ParticleSystemRenderer ps)
         {
-            if (ps.bounds.size.magnitude > 3f) return false;
+            // Small flames only: a torch's, a sconce's. A hearth or bonfire is metres from the wall behind it, and
+            // painted onto that wall it comes out as a stretched copy per viewpoint (0.9.8 to 0.9.19); its light is
+            // still captured.
+            if (ps.bounds.size.magnitude > Plugin.FlameMaxSize.Value) return false;
             var root = ps.GetComponentInParent<ZNetView>();
             Transform top = root != null ? root.transform : (ps.transform.parent != null ? ps.transform.parent : ps.transform);
             foreach (var l in top.GetComponentsInChildren<Light>(false))

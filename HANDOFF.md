@@ -387,6 +387,11 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     the flame passes and step 2b are inert unless opted in. Work it out in tools/LayerTest before turning it back
     on (needs FlameDepth support in the harness). Also: one "GPU could not hand back face" failure in the log;
     `Capture.DisableAsync()` now drops to plain reads for the session after a failure.
+43. 0.9.20, Max: "fire is still a mess, last chance tonight": the hearth's flames painted on the back wall from
+    four viewpoints = several stretched copies. `IsFlame` now keeps only flames with bounds under `FlameMaxSize`
+    (1 m): torches yes, hearths no (light stays). Published to Hexium as Max/Immersive_Portals 0.9.20 and
+    installed into Gale as a Hexium package (profile mods JSON in data.sqlite3 + Max-Immersive_Portals folder),
+    replacing the hand-placed Max-LivePortals folder, so the profile can be shared.
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

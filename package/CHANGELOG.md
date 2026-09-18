@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.20
+
+- Big open fires (hearths, bonfires) are no longer painted into the capture: they sit metres from the wall behind them and came out as stretched copies. Their light is still captured. Torch and sconce flames stay. `FlameMaxSize` (1 m) sets the limit. Rooms with a hearth need a recapture.
+
 ## 0.9.19
 
 - Flame depth is off by default (`CaptureFlameDepth`). Free-standing torches were becoming near things of their own and leaving dark blocks beside them; flames are painted on whatever is behind them again, as in 0.9.8. The torchlight layer, flames and the swirl stay. Needs a recapture of rooms with torches.
