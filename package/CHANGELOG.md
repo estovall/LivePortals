@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.27 (TESTING: on the `testing` branch only, not published)
+
+- A window no longer blows out into blocks. A capture taken in near darkness and seen later under a moon was brightened up to four times; an 8-bit night picture has nothing to brighten and came out as green blocks. Any tint now brightens by at most 1.5; dimming is unchanged.
+
 ## 0.9.26 (TESTING: on the `testing` branch only, not published)
 
 - The departure capture no longer goes missing on quick trips. It waited 0.8 s and then only fired if you were still mid-teleport; between portals in one base the game's fast load has already moved you by then, so the place you came from was never captured until a second trip. It now fires either way. A capture that arrives while the previous one of the same portal is still being stored waits for it instead of being dropped.

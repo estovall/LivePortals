@@ -598,6 +598,10 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     `DepartureDelay`; with the far side loaded (same base) Valheim 1.0's fast load completes the teleport inside
     the delay. Requirement dropped (the portal is still loaded, the player is elsewhere). `CaptureSeries` now
     waits up to 30 s for a running capture of the same portal instead of skipping. **Untested.**
+59. 0.9.27 testing: Max's numpad-5 at window 1_439887 (shows 1_439874): tint 3.84, sun tint 4.0 (the clamp),
+    captured under sun 0.002 (moonless), now under a moon: the sun ratio exploded and the dark 8-bit picture was
+    scaled x4 into green blocks. `Lighting.MaxBrighten` = 1.5 caps every ratio (SplitTint, SkyChannel, Mix and
+    the old Tint); the sun ratio's floor is 0.05. **Untested.**
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

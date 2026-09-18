@@ -39,10 +39,17 @@ namespace LivePortals
         /// light falls to a tenth at night and the sky's to a third; one number for both (Tint) left everything
         /// the sky lights, which at night is everything, three times too dark.
         /// </summary>
+        /// <summary>The most any tint may brighten a picture. More reveals the 8-bit steps of a dark capture as blocks.</summary>
+        internal const float MaxBrighten = 1.5f;
+
         internal static void SplitTint(PortalCapture cap, float strength, out Color sunTint, out Color skyGain)
         {
             Sample(out var sun, out var amb, out _, out _);
-            float ratio = Mathf.Clamp((Luminance(sun) + 0.02f) / (Luminance(cap.Sun) + 0.02f), 0.04f, 4f);
+            // Brightening is capped low: a picture taken in near darkness (sun 0.002 on a moonless night, seen later
+            // under a moon at 0.4) was scaled to the old cap of 4 and came out blown out and blocky, the 8-bit
+            // picture having nothing to brighten. Dimming stays free. The 0.05 floor keeps two tiny values from
+            // making a large ratio.
+            float ratio = Mathf.Clamp((Luminance(sun) + 0.05f) / (Luminance(cap.Sun) + 0.05f), 0.04f, MaxBrighten);
             Color chroma = Color.white;
             float thenLum = Luminance(cap.Sun), nowLum = Luminance(sun);
             if (thenLum > 0.01f && nowLum > 0.01f)
@@ -61,7 +68,7 @@ namespace LivePortals
 
         private static float SkyChannel(float now, float then, float sunTint, float strength)
         {
-            float ra = Mathf.Lerp(1f, Mathf.Clamp((now + 0.01f) / (then + 0.01f), 0.04f, 4f), strength);
+            float ra = Mathf.Lerp(1f, Mathf.Clamp((now + 0.05f) / (then + 0.05f), 0.04f, MaxBrighten), strength);
             return Mathf.Clamp(Mathf.Pow(ra, 2.2f) - Mathf.Pow(sunTint, 2.2f), 0f, 4f);
         }
 
@@ -83,7 +90,7 @@ namespace LivePortals
         {
             float s = Mathf.Pow(sunTint, 2.2f);
             float light = sunShare * s + skyShare * (s + skyGain) + localShare;
-            return Mathf.Clamp(Mathf.Pow(light, 1f / 2.2f), 0.04f, 4f);
+            return Mathf.Clamp(Mathf.Pow(light, 1f / 2.2f), 0.04f, MaxBrighten);
         }
 
         private static readonly int AmbientId = Shader.PropertyToID("_AmbientColor");
@@ -114,7 +121,7 @@ namespace LivePortals
         {
             Sample(out var sun, out var amb, out _, out _);
             float ratio = Level(sun, amb) / Level(cap.Sun, cap.Ambient);
-            ratio = Mathf.Clamp(ratio, 0.04f, 4f);
+            ratio = Mathf.Clamp(ratio, 0.04f, MaxBrighten);
             // Without the local-light layer (no additive shader passed the self-test, or a capture from before
             // 0.9.8) nothing puts the torchlight back after the darkening, and a torch-lit room seen at night is
             // as black as the hillside. Then hold back the darkening by the share of the picture's light that
