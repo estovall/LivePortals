@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.29 (TESTING: on the `testing` branch only, not published)
+
+- Departure captures no longer lose the race against a fast teleport. With the far side already loaded the game moves you and unloads the place within a moment of stepping in, and a capture spread over several frames found "the portal went away". A departure capture now renders all its faces in one frame, 0.2 s after stepping in (`DepartureDelay`, brought down from 0.8 in existing configs), under the fade.
+- A capture whose GPU read-back fails is retried once straight away with plain reads instead of being lost.
+
 ## 0.9.28 (TESTING: on the `testing` branch only, not published)
 
 - The glossy sheen is gone for real. It was the flame glow pass: meant to blur only the far side's flames over the pane, it also caught the far side's grass and the reliefs, so a blurred copy of the picture lay over it. The pass now runs with everything but the flames switched off, before the grass is queued.

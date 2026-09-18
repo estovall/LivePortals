@@ -608,6 +608,11 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     whatever the tint missed were blurred over the pane through the additive bloom quad. Now RenderBloom runs
     first in RenderNow, before the grass queue, with all relief renderers off and cullingMask FaceLayer; the
     black-tint trick is gone. Cost: a flame behind a pillar glows through it a little. **Untested.**
+61. 0.9.29 testing: Max, "bog witch portal got skipped again" on 0.9.27. Log: "could not capture: the portal went
+    away during the capture" (the departure zone unloaded mid-render after a fast-load teleport) and one "GPU could
+    not hand back face" loss. `CaptureRun.Hurry` (departures): all faces in one frame, no frame budget;
+    `DepartureDelay` default 0.2 (ConfigVersion 4 lowers stored values above it); `CaptureSeries` retries once
+    with plain reads after a read-back failure. **Untested.**
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

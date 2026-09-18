@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "Immersive Portals";
-        public const string VERSION = "0.9.28";
+        public const string VERSION = "0.9.29";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -188,9 +188,10 @@ namespace LivePortals
                     new AcceptableValueRange<float>(-1f, 1f)));
             CaptureOnDeparture = Config.Bind("3. Capture", "CaptureOnDeparture", true, "Capture the portal you leave through (feeds the window at its partner).");
             CaptureOnArrival = Config.Bind("3. Capture", "CaptureOnArrival", true, "Capture the portal you arrive at (feeds the window at the one you came from).");
-            DepartureDelay = Config.Bind("3. Capture", "DepartureDelay", 0.8f,
-                new ConfigDescription("Seconds after stepping in before the departure capture, so the screen is mostly black already.",
+            DepartureDelay = Config.Bind("3. Capture", "DepartureDelay", 0.2f,
+                new ConfigDescription("Seconds after stepping in before the departure capture. Short: with the far side already loaded the game moves you and unloads this place within a moment of stepping in, and a capture that starts too late finds nothing. The capture itself takes one frame on departure.",
                     new AcceptableValueRange<float>(0f, 1.8f)));
+            if (configVersion.Value < 4) { if (DepartureDelay.Value > 0.2f) DepartureDelay.Value = 0.2f; configVersion.Value = 4; }
             ArrivalDelay = Config.Bind("3. Capture", "ArrivalDelay", 0.15f,
                 new ConfigDescription("Seconds after arrival before the capture, to let the area finish appearing while the screen is still dark.",
                     new AcceptableValueRange<float>(0f, 2f)));
@@ -557,12 +558,22 @@ namespace LivePortals
             }
             _busy.Add(id);
 
-            var run = new CaptureRun(portal, id);
-            try { run.Prepare(); }
-            catch (Exception e) { Log.LogWarning("LivePortals: capture failed: " + e); run.Abort(); }
-            if (run.Error == null && run.Points.Count > 0) yield return StartCoroutine(run.Render());
-            else if (run.Error == null) run.Abort();
-            while (!run.Done) yield return null;
+            CaptureRun run = null;
+            for (int attempt = 0; attempt < 2; attempt++)
+            {
+                // A departure is rendered in one frame: with the far side already loaded the game moves you and
+                // unloads this place within a few frames of stepping in (0.9.27: "the portal went away during the
+                // capture"). The screen is fading to black meanwhile.
+                run = new CaptureRun(portal, id) { Hurry = why == "departure" };
+                try { run.Prepare(); }
+                catch (Exception e) { Log.LogWarning("LivePortals: capture failed: " + e); run.Abort(); }
+                if (run.Error == null && run.Points.Count > 0) yield return StartCoroutine(run.Render());
+                else if (run.Error == null) run.Abort();
+                while (!run.Done) yield return null;
+                // A failed GPU read-back has switched the reads to plain ones (Capture.DisableAsync): once more, now.
+                if (run.Error != null && run.Error.Contains("hand back") && attempt == 0 && portal != null) { Dbg("retrying the " + why + " capture with plain reads"); continue; }
+                break;
+            }
             _busy.Remove(id);
             if (run.Error != null) { Log.LogWarning("LivePortals: could not capture: " + run.Error); yield break; }
             PortalWindow.NotifyCaptureUpdated(id);
