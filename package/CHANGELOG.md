@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.35 (TESTING: on the `testing` branch only, not published)
+
+- The picture no longer depends on the window texture's alpha. The sprite that shows the picture multiplied it by that alpha, which the deferred passes leave well below one over most of the picture; at night that showed as a shadow over the window with the live grass standing out bright through it, and by day as the gloss and the dark rims round clouds. The start-up self-test now picks a picture shader that ignores alpha (Sprites/Default with its external-alpha input, or an additive one), and the plug behind it is plain black again.
+- Numpad 5 also dumps the flame glow layer.
+
 ## 0.9.33 (TESTING: on the `testing` branch only, not published)
 
 - No more stutter after a trip. 0.9.32 built the layers on six threads at once, and their scratch memory kept the collector busy enough to hold the game at 12 fps for a couple of seconds after each arrival. Three low-priority threads now (`CaptureThreads`), and captures render one face per frame (`CaptureFacesPerFrame`, brought down from 2 in existing configs).

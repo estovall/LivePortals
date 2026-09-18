@@ -667,7 +667,7 @@ namespace LivePortals
             _rt.Create();
             _cam.targetTexture = _rt;
             if (_overlayMat != null) _overlayMat.mainTexture = _rt;
-            WindowMaterial.SetPaneTexture(_paneMat, _rt);
+            if (!WindowMaterial.PictureIgnoresAlpha) WindowMaterial.SetPaneTexture(_paneMat, _rt);
         }
 
         private void SetReliefsEnabled(bool under, bool on)
@@ -845,7 +845,9 @@ namespace LivePortals
             // window texture's alpha, and where the live clouds leave that below one (their soft edges) the plug
             // fills in the same colour instead of black, which drew a dark outline round every cloud (0.9.10 to
             // 0.9.24). Everywhere else the sprite covers it, so the plug's own darkening at night cannot show.
-            _paneMat = WindowMaterial.MakePane(_rt);
+            // With a picture material that ignores alpha (see WindowMaterial.MakePicture) the plug is black and
+            // never shows; otherwise it carries the picture as emission for the pixels the sprite leaves thin.
+            _paneMat = WindowMaterial.PictureIgnoresAlpha ? WindowMaterial.MakePlug() : WindowMaterial.MakePane(_rt);
             _paneSolid = _paneMat != null;
             if (!_paneSolid)
             {
@@ -865,8 +867,7 @@ namespace LivePortals
                 _overlayRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                 _overlayRenderer.receiveShadows = false;
                 _overlayRenderer.enabled = false;
-                _overlayMat = new Material(FindShader("Sprites/Default", "Unlit/Transparent", "Unlit/Texture"));
-                _overlayMat.mainTexture = _rt;
+                _overlayMat = WindowMaterial.MakePicture(_rt);
                 // Drawn at the end of the opaque stage (queue 2450, in the forward pass since a sprite has no G-buffer
                 // pass): after the deferred lighting and the screen effects that read the G-buffer, which is what
                 // darkened the old emissive pane at night, but before the mist and everything else composited

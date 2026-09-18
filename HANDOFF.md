@@ -644,6 +644,19 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     the bloom quad (FlameBloom 4). Set FlameBloom = 0 in his config for the next launch as the test; numpad 5 now
     also saves the bloom RT (`SaveTexture`, tag "bloom"). If the green goes with FlameBloom 0, the bloom pass
     still catches something green (grass queued for `_cam`? the fire prefab's own glow?): read the bloom dump.
+67. 0.9.35 testing: Max: "there seems to be a shadow that's applied, a shadow that has holes in it" (night, the
+    KAE&ALBA window dark except bright green patches by the torch; his dumps of the window texture were clean).
+    Reading: Sprites/Default premultiplies by the RT alpha; the RT alpha after the deferred passes is not 1 over
+    the reliefs, so the sprite went dark there and the plug (emissive, AO-darkened at night) showed through; the
+    live grass is forward-rendered with alpha 1 = the bright holes; the same defect made the day-time gloss
+    (torches mirrored in the plug) and the cloud rims. `WindowMaterial.MakePicture` + a self-test: a green
+    texture with alpha 0 over an opaque black quad must come out green; candidates Sprites/Default with
+    `_AlphaTex` white + `_EnableExternalAlpha` + keyword ETC1_EXTERNAL_ALPHA, then Particles/Additive (Soft)
+    variants (gain calibrated). With one found (`PictureIgnoresAlpha`) the plug is black (`MakePlug`) and
+    `SetPaneTexture` is skipped; `Dissolve.Apply` paints hidden cells (0,0,0,0) so an additive picture shader
+    hides them too. Watch the self-test line for "picture drawn with ..., alpha ignored" or "NO picture shader
+    ignores alpha". **Untested.** If none passes, the next option is forcing the RT alpha to 1 after the passes
+    (no stock shader writes alpha alone) or an RGB-only RT format with a gamma fix.
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

@@ -104,8 +104,8 @@ namespace LivePortals
         {
             for (int q = 0; q < cellOfQuad.Length; q++)
             {
-                byte a = CellShown(cellOfQuad[q], visible) ? (byte)255 : (byte)0;
-                var c = new Color32(255, 255, 255, a);
+                // A hidden cell is black as well as clear: an additive picture shader would ignore the alpha.
+                var c = CellShown(cellOfQuad[q], visible) ? new Color32(255, 255, 255, 255) : new Color32(0, 0, 0, 0);
                 cols[q * 4] = c; cols[q * 4 + 1] = c; cols[q * 4 + 2] = c; cols[q * 4 + 3] = c;
             }
             m.colors32 = cols;

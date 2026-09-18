@@ -134,6 +134,39 @@ namespace LivePortals
         /// <summary>The black, depth-writing, dissolving plug behind the picture, or null when no tested shader is available (then the caller keeps the sprite alone).</summary>
         internal static Material MakePlug() => MakePane(null);
 
+        // ---- The picture over the plug ----
+        // Sprites/Default multiplies its colour by the texture's alpha, and the window texture's alpha is whatever
+        // the deferred passes left there: not one. At night that showed as the picture darkened wherever alpha was
+        // low with the plug behind (darkened by the game's ambient occlusion) coming through, the live grass (forward,
+        // alpha one) standing out bright, the torches mirrored in the plug, dark rims round the clouds (0.9.10 to
+        // 0.9.34). The picture needs a shader that ignores alpha; two in the build can, and the self-test picks one.
+        private static Shader _pictureShader;
+        private static bool _pictureExternalAlpha;
+        private static float _pictureGain = 1f;
+        private static Texture2D _white;
+        /// <summary>A picture material that ignores the texture's alpha was found; the plug behind it can stay black.</summary>
+        internal static bool PictureIgnoresAlpha => _pictureShader != null;
+
+        internal static Material MakePicture(Texture rt)
+        {
+            if (_pictureShader == null)
+            {
+                var m0 = new Material(Shader.Find("Sprites/Default") ?? Shader.Find("Unlit/Transparent") ?? Shader.Find("Unlit/Texture")) { mainTexture = rt };
+                return m0;
+            }
+            var m = new Material(_pictureShader) { mainTexture = rt };
+            if (_pictureExternalAlpha)
+            {
+                if (_white == null) _white = Solid(new Color32(255, 255, 255, 255));
+                m.SetTexture("_AlphaTex", _white);
+                m.SetFloat("_EnableExternalAlpha", 1f);
+                m.EnableKeyword("ETC1_EXTERNAL_ALPHA");
+            }
+            else if (m.HasProperty("_TintColor")) m.SetColor("_TintColor", new Color(_pictureGain, _pictureGain, _pictureGain, 1f));
+            if (m.HasProperty("_Cull")) m.SetInt("_Cull", (int)CullMode.Off);
+            return m;
+        }
+
         /// <summary>
         /// The pane as one solid emissive surface showing rt (how 0.8.12 to 0.9.9 drew it; PaneStyle Emissive), or,
         /// with rt null, the black plug of PaneStyle Sprite. Null when no tested shader is available.
@@ -414,6 +447,59 @@ namespace LivePortals
                     log.Append(_addShader != null ? $" local-light layer via {_addShader.name} (gain {_addGain:0.00});" : " NO additive shader passed: torchlight will follow the time of day;");
                 }
                 catch (System.Exception e) { log.Append(" additive self-test threw: " + e.Message); }
+                // ---- A shader for the picture that ignores the texture's alpha: a green texture with alpha 0, drawn
+                // over an opaque black quad, must come out green, and half-bright green half bright. ----
+                try
+                {
+                    var opaque = new Material(_setup.Shader);
+                    var nearMr = nearGo.GetComponent<MeshRenderer>(); var farMr = farGo.GetComponent<MeshRenderer>();
+                    Texture2D black = Solid(new Color32(0, 0, 0, 255)), ghost = Solid(new Color32(0, 200, 0, 0)), half = Solid(new Color32(0, 128, 0, 0));
+                    Configure(opaque, _setup, black, 0.5f); opaque.renderQueue = 2450;
+                    cam.renderingPath = _setup.Forward ? RenderingPath.Forward : defaultPath;
+                    var picks = new List<System.Func<Material>>();
+                    var sprite = Shader.Find("Sprites/Default");
+                    if (sprite != null) picks.Add(() =>
+                    {
+                        var m = new Material(sprite) { mainTexture = ghost };
+                        if (_white == null) _white = Solid(new Color32(255, 255, 255, 255));
+                        m.SetTexture("_AlphaTex", _white);
+                        m.SetFloat("_EnableExternalAlpha", 1f);
+                        m.EnableKeyword("ETC1_EXTERNAL_ALPHA");
+                        return m;
+                    });
+                    foreach (string name in new[] { "Legacy Shaders/Particles/Additive (Soft)", "Particles/Additive (Soft)", "Mobile/Particles/Additive" })
+                    {
+                        var sh = Shader.Find(name);
+                        if (sh != null) picks.Add(() => { var m = new Material(sh) { mainTexture = ghost }; if (m.HasProperty("_TintColor")) m.SetColor("_TintColor", Color.white); return m; });
+                    }
+                    for (int t = 0; t < picks.Count && _pictureShader == null; t++)
+                    {
+                        var a = picks[t]();
+                        try
+                        {
+                            a.renderQueue = 2450;
+                            nearMr.sharedMaterial = a; farMr.sharedMaterial = opaque;
+                            Color32 full = Shoot(cam, rt, read, nearGo, farGo);
+                            a.mainTexture = half;
+                            Color32 dim = Shoot(cam, rt, read, nearGo, farGo);
+                            bool ok = full.g > 150 && full.r < 60 && full.b < 60 && dim.g > 8;
+                            float gain = dim.g > 8 ? 128f / dim.g : 1f;
+                            bool external = a.shader == sprite;
+                            log.Append($" picture {a.shader.name}{(external ? " (external alpha)" : "")}: {Hex(full)} {Hex(dim)}{(ok ? " OK" : "")};");
+                            if (ok)
+                            {
+                                _pictureShader = a.shader; _pictureExternalAlpha = external;
+                                _pictureGain = external ? 1f : Mathf.Clamp(gain, 0.2f, 5f);
+                            }
+                        }
+                        catch (System.Exception e) { log.Append($" picture {a.shader.name}: threw {e.Message};"); }
+                        Object.Destroy(a);
+                    }
+                    nearMr.sharedMaterial = null; farMr.sharedMaterial = null;
+                    Object.Destroy(opaque); Object.Destroy(black); Object.Destroy(ghost); Object.Destroy(half);
+                    log.Append(_pictureShader != null ? $" picture drawn with {_pictureShader.name}, alpha ignored;" : " NO picture shader ignores alpha: the plug carries the picture too;");
+                }
+                catch (System.Exception e) { log.Append(" picture self-test threw: " + e.Message); }
             }
             }
             catch (System.Exception e) { log.Append(" self-test threw: " + e.Message); }
