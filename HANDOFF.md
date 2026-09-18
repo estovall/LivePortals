@@ -344,6 +344,11 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
 35. 0.9.12: Max, on 0.9.11: torches right, "those pillars have chunks missing". The flame mask's glow spill (sum >=
     90) over the pillars behind moved those pixels to the flame's depth. Now sum >= 150 and the mask must be at
     least half the colour pixel's brightness. **Untested.**
+36. 0.9.13: Max, "z fighting at certain angles" with two screenshots: same spot, ring fully black in one, the
+    picture in the other. Not the plug/sprite pair (that would flicker in patches): the vanilla swirl under
+    `TeleportWorld.m_target_found` is transparent on the same plane and sorts before or after our sprite by angle.
+    `PortalWindow.SetSwirlHidden` disables its renderers while alpha >= 0.5 (`HideSwirl` config), restored on
+    Hide/Cleanup; sprite offset 1 cm -> 3 cm. **Untested.**
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

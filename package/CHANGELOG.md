@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.13
+
+- The ring no longer goes black at some angles. The game's own swirl in the ring is transparent and sits on the pane's plane, and depending on the angle the game drew it after the picture. It is switched off while the window shows (`HideSwirl`, on) and the picture sits a little further off the plug.
+
 ## 0.9.12
 
 - Pillars behind torches no longer have chunks missing. The faint glow around a flame spilled onto whatever stood behind it and 0.9.11 pulled those pixels forward with the flame; now only pixels the flame itself dominates move.

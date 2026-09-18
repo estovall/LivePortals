@@ -55,6 +55,10 @@ namespace LivePortals
         private GameObject _overlay;
         private Renderer _overlayRenderer;
         private Material _overlayMat;
+        // The game's own swirl in the ring: transparent, on the pane's plane. It is switched off while the window
+        // shows, or at some angles the game draws it after the picture and the ring goes black.
+        private readonly List<Renderer> _swirl = new List<Renderer>();
+        private bool _swirlHidden;
         private readonly List<Relief> _reliefs = new List<Relief>();
         private Camera _cam;
         private RenderTexture _rt;
@@ -301,10 +305,11 @@ namespace LivePortals
             else _paneMat.color = new Color(1f, 1f, 1f, alpha);
             if (_overlay != null)
             {
-                // A hair toward the viewer, so it never fights the plug for the same depth.
-                _overlay.transform.localPosition = new Vector3(0f, 0f, realFront ? 0.01f : -0.01f);
+                // A little toward the viewer, so it never fights the plug for the same depth.
+                _overlay.transform.localPosition = new Vector3(0f, 0f, realFront ? 0.03f : -0.03f);
                 _overlayMat.color = new Color(1f, 1f, 1f, alpha);
             }
+            SetSwirlHidden(alpha >= 0.5f && Plugin.HideSwirl.Value);
 
             // ---- Lighting: tint the captures to now, and spill light onto the viewer's side ----
             _tintTimer -= Time.deltaTime;
@@ -745,10 +750,28 @@ namespace LivePortals
 
         private void Hide()
         {
+            SetSwirlHidden(false);
             _visible = false;
             _poseReady = false;
             WantsRender = false;
             ApplyVisibility();
+        }
+
+        private void SetSwirlHidden(bool hide)
+        {
+            if (hide == _swirlHidden) return;
+            _swirlHidden = hide;
+            if (hide)
+            {
+                _swirl.Clear();
+                if (_tw != null && _tw.m_target_found != null)
+                    foreach (var r in _tw.m_target_found.GetComponentsInChildren<Renderer>(true)) if (r.enabled) { r.enabled = false; _swirl.Add(r); }
+            }
+            else
+            {
+                foreach (var r in _swirl) if (r != null) r.enabled = true;
+                _swirl.Clear();
+            }
         }
 
         private void ApplyVisibility()
@@ -761,6 +784,7 @@ namespace LivePortals
 
         private void Cleanup()
         {
+            SetSwirlHidden(false);
             ReleaseCapture();
             if (_pane != null) Destroy(_pane);
             if (_cam != null) Destroy(_cam.gameObject);

@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "Immersive Portals";
-        public const string VERSION = "0.9.12";
+        public const string VERSION = "0.9.13";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -43,6 +43,7 @@ namespace LivePortals
         internal static ConfigEntry<float> RingCenterOffset;
         internal static ConfigEntry<float> PaneForwardOffset;
         internal static ConfigEntry<bool> PaneRound;
+        internal static ConfigEntry<bool> HideSwirl;
         internal static ConfigEntry<bool> TuneKeys;
         internal static ConfigEntry<bool> GlassTest;
         internal static ConfigEntry<bool> ArrivalViewBothSides;
@@ -159,6 +160,7 @@ namespace LivePortals
             OtherCenterHeight = Config.Bind("2. Window", "OtherCenterHeight", 0f,
                 new ConfigDescription("Height of the opening's centre above the base of those portals. 0 = measured.", new AcceptableValueRange<float>(0f, 12f)));
             PaneRound = Config.Bind("2. Window", "PaneRound", true, "Round pane (the ring's shape) instead of a square.");
+            HideSwirl = Config.Bind("2. Window", "HideSwirl", true, "Switch the game's own swirl in the ring off while the window shows (it sits on the same plane and at some angles draws over the picture).");
             TuneKeys = Config.Bind("2. Window", "TuneKeys", true,
                 "Numpad tuning while in game: 8/2 ring height, 4/6 forward offset, 7/9 pane width, 1/3 pane height, . (period) toggles the glass test, 5 prints, saves, and dumps what every visible window drew (BepInEx/config/LivePortals/debug), 0 captures the nearest portal now. Values are saved to this file.");
             GlassTest = Config.Bind("2. Window", "GlassTest", false,
