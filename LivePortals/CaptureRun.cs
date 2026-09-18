@@ -36,7 +36,7 @@ namespace LivePortals
         public float RenderMs;      // main-thread time spent rendering, all frames together
         public int RenderFrames;
         public int FrontFaces;
-        public double WorkSeconds;
+        public double WorkSeconds, LayerSeconds;
         public long TakenAt;
         public List<RawPoint> Points => _points;
         public int GrassCount => _grass != null ? _grass.Count : 0;
@@ -44,6 +44,22 @@ namespace LivePortals
 
         /// <summary>An earlier capture of the same portal whose files are still being written: this one's writing waits for it.</summary>
         internal CaptureRun StoreAfter;
+
+        // ---- The result in memory, for the window at the other end to show before the files are written ----
+        /// <summary>The layers of every face, [point][face], once Ready. The window loads from these; the files follow.</summary>
+        internal FaceLayers[][] Layers;
+        internal volatile bool Ready;
+        internal ZDOID Id => _id;
+        internal List<RawPoint> PointList => _points;
+        internal GrassSet GrassInMemory => _grass;
+        internal FireSet FireInMemory => _fire;
+        private static readonly Dictionary<ZDOID, CaptureRun> _readyRuns = new Dictionary<ZDOID, CaptureRun>();
+
+        /// <summary>A capture of this portal whose layers are done but whose files may still be on their way. Main thread.</summary>
+        internal static bool TryGetReady(ZDOID id, out CaptureRun run)
+        {
+            lock (_readyRuns) return _readyRuns.TryGetValue(id, out run);
+        }
 
         internal CaptureRun(TeleportWorld portal, ZDOID id)
         {
@@ -180,11 +196,18 @@ namespace LivePortals
         private void Work()
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
+            int threads = Mathf.Max(1, Mathf.Min(6, System.Environment.ProcessorCount / 2));
+            var gate = new SemaphoreSlim(threads);
+            int pending = 0;
             try
             {
-                bool cleared = false;
+                // 1. Layers, several faces at a time, as their pixels arrive. Up to 0.9.31 one thread did them one
+                //    after another and then encoded every PNG: four to nine seconds before the window at the other
+                //    end had anything, seconds after you had arrived there. The layers alone, spread over half the
+                //    cores, are done in about a second, while the screen is still black.
+                var layers = new FaceLayers[_points.Count][];
                 var grids = new FaceGrids[_points.Count][];
-                for (int k = 0; k < grids.Length; k++) grids[k] = new FaceGrids[6];
+                for (int k = 0; k < layers.Length; k++) { layers[k] = new FaceLayers[6]; grids[k] = new FaceGrids[6]; }
                 while (true)
                 {
                     FaceRaw f = null;
@@ -196,25 +219,57 @@ namespace LivePortals
                         _signal.WaitOne(200);
                         continue;
                     }
-                    if (!cleared)
+                    var face = f;
+                    Interlocked.Increment(ref pending);
+                    ThreadPool.QueueUserWorkItem(_ =>
                     {
-                        // The earlier capture of this portal first, so its files never land on top of these.
-                        var earlier = StoreAfter;
-                        for (int i = 0; earlier != null && !earlier.Done && i < 1200 && !_abort; i++) Thread.Sleep(50);
-                        if (_abort) return;
-                        Storage.Clear(_job); cleared = true;
-                    }
-                    var pt = _points[f.PointIndex];
-                    var raw = f.Composed ?? Capture.Compose(f, pt, _far, _exposure, _waterLevel);
-                    f.Composed = null;
-                    f.Release();
-                    var layers = Layers.Process(raw, pt.Res, pt.Step, pt.DepthRange);
-                    layers.Grids.Tan = pt.FaceTan;
-                    Storage.SaveFace(_job, f.PointIndex, f.Face, layers, pt.Res);
-                    grids[f.PointIndex][f.Face] = layers.Grids;
-                    if (layers.Front != null) FrontFaces++;
+                        gate.Wait();
+                        try
+                        {
+                            if (_abort) return;
+                            var pt = _points[face.PointIndex];
+                            var raw = face.Composed ?? Capture.Compose(face, pt, _far, _exposure, _waterLevel);
+                            face.Composed = null;
+                            face.Release();
+                            var l = LivePortals.Layers.Process(raw, pt.Res, pt.Step, pt.DepthRange);
+                            l.Grids.Tan = pt.FaceTan;
+                            layers[face.PointIndex][face.Face] = l;
+                            grids[face.PointIndex][face.Face] = l.Grids;
+                            if (l.Front != null) Interlocked.Increment(ref FrontFaces);
+                        }
+                        catch (Exception e) { if (Error == null) Error = e.ToString(); }
+                        finally { gate.Release(); Interlocked.Decrement(ref pending); _signal.Set(); }
+                    });
                 }
+                while (Volatile.Read(ref pending) > 0) { if (_abort) return; _signal.WaitOne(100); }
+                if (Error != null) return;
+                Layers = layers;
+                lock (_readyRuns) _readyRuns[_id] = this;
+                Ready = true;
+                LayerSeconds = sw.Elapsed.TotalSeconds;
+
+                // 2. The files, behind any earlier capture of this portal still being written.
+                var earlier = StoreAfter;
+                for (int i = 0; earlier != null && !earlier.Done && i < 1200 && !_abort; i++) Thread.Sleep(50);
                 if (_abort) return;
+                Storage.Clear(_job);
+                for (int k = 0; k < _points.Count; k++)
+                    for (int i = 0; i < 6; i++)
+                    {
+                        var l = layers[k][i];
+                        if (l == null) continue;
+                        int point = k, fc = i;
+                        Interlocked.Increment(ref pending);
+                        ThreadPool.QueueUserWorkItem(_ =>
+                        {
+                            gate.Wait();
+                            try { if (!_abort) Storage.SaveFace(_job, point, fc, l, _points[point].Res); }
+                            catch (Exception e) { if (Error == null) Error = e.ToString(); }
+                            finally { gate.Release(); Interlocked.Decrement(ref pending); _signal.Set(); }
+                        });
+                    }
+                while (Volatile.Read(ref pending) > 0) { if (_abort) return; _signal.WaitOne(100); }
+                if (_abort || Error != null) return;
                 for (int k = 0; k < _points.Count; k++) Storage.SavePoint(_job, k, _points[k], grids[k]);
                 Storage.SaveGrass(_job, _grass);
                 Storage.SaveFire(_job, _fire);
@@ -223,7 +278,9 @@ namespace LivePortals
             catch (Exception e) { if (Error == null) Error = e.ToString(); }
             finally
             {
+                while (Volatile.Read(ref pending) > 0) _signal.WaitOne(100);
                 WorkSeconds = sw.Elapsed.TotalSeconds;
+                lock (_readyRuns) if (_readyRuns.TryGetValue(_id, out var r) && r == this) _readyRuns.Remove(_id);
                 Done = true;
             }
         }

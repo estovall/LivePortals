@@ -51,6 +51,108 @@ namespace LivePortals
             return l;
         }
 
+        private CaptureRun _memory;
+
+        /// <summary>
+        /// Load the primary viewpoint (and up to maxPoints) straight from a capture whose layers are done in memory,
+        /// without waiting for its files: what makes the window at the other end show the place you just left
+        /// within a moment of arriving.
+        /// </summary>
+        internal static CaptureLoader FromMemory(CaptureRun run, bool opaqueAlpha, int maxPoints)
+        {
+            var l = new CaptureLoader(Storage.Dir(), Storage.Key(run.Id), opaqueAlpha, 0, maxPoints) { _memory = run };
+            ThreadPool.QueueUserWorkItem(_ => l.WorkMemory());
+            return l;
+        }
+
+        private void WorkMemory()
+        {
+            try
+            {
+                var run = _memory;
+                var pts = run.PointList;
+                var layers = run.Layers;
+                var set = new CaptureSet { AvailablePoints = pts.Count, TakenAt = run.TakenAt };
+                int to = Mathf.Min(pts.Count, Mathf.Max(1, _maxPoints));
+                _grass = run.GrassInMemory != null ? run.GrassInMemory.Budgeted() : null;
+                _fire = Plugin.LiveFire.Value ? run.FireInMemory : null;
+                for (int p = 0; p < to && !_cancelled; p++)
+                {
+                    var pt = pts[p];
+                    var cap = new PortalCapture
+                    {
+                        TakenAt = set.TakenAt, Grid = pt.Res / pt.Step + 1, DepthRange = pt.DepthRange,
+                        Sun = pt.Sun, Ambient = pt.Ambient, Fog = pt.Fog, DayFraction = pt.DayFraction,
+                        AverageLuminance = pt.AverageLuminance, AverageLocalLuminance = pt.AverageLocalLuminance, AverageAmbientLuminance = pt.AverageAmbientLuminance,
+                        AverageColor = pt.AverageColor, GrassGain = pt.GrassGain, RingHeight = pt.RingHeight,
+                    };
+                    set.Captures.Add(cap);
+                    set.Offsets.Add(pt.Offset);
+                    for (int i = 0; i < 6 && !_cancelled; i++)
+                    {
+                        var fl = layers[p][i];
+                        if (fl == null) continue;
+                        cap.Grids[i] = fl.Grids;
+                        int face = i, res = pt.Res;
+                        QueueArray(fl.Back, res, res, t => cap.Faces[face] = t, p > 0 && Plugin.HalfResSecondaries.Value);
+                        if (p == 0)
+                        {
+                            if (fl.Front != null) QueueArray(fl.Front, res, res, t => cap.Fronts[face] = t);
+                            if (WindowMaterial.AdditiveWorks)
+                            {
+                                if (fl.Local != null) QueueArray(fl.Local, fl.LocalRes, fl.LocalRes, t => cap.Locals[face] = t);
+                                if (fl.LocalFront != null) QueueArray(fl.LocalFront, fl.LocalRes, fl.LocalRes, t => cap.LocalsFront[face] = t);
+                                if (WindowMaterial.AdditiveScalable)
+                                {
+                                    if (fl.Ambient != null) QueueArray(fl.Ambient, res, res, t => cap.Ambients[face] = t);
+                                    if (fl.AmbientFront != null) QueueArray(fl.AmbientFront, res, res, t => cap.AmbientsFront[face] = t);
+                                }
+                            }
+                        }
+                        var g = fl.Grids;
+                        int n = cap.Grid;
+                        var back = ReliefMesh.BackgroundData(g, n);
+                        var skirt = ReliefMesh.SkirtData(g, n);
+                        var shell = p == 0 ? ReliefMesh.GroundShellData(g, n, cap.DepthRange * 1.01f, true, ReliefMesh.ShellMinDepth) : null;
+                        var front = p == 0 && g.FgCell != null ? ReliefMesh.ForegroundData(g, n) : null;
+                        _items.Add(() =>
+                        {
+                            cap.Back[face] = ReliefMesh.Make("LivePortals_Back", back);
+                            cap.Skirt[face] = ReliefMesh.Make("LivePortals_Skirt", skirt);
+                            if (shell != null) cap.Shell[face] = ReliefMesh.Make("LivePortals_Shell", shell);
+                            if (front != null) cap.Front[face] = ReliefMesh.Make("LivePortals_Front", front);
+                        });
+                    }
+                }
+                if (_grass != null) _items.Add(() => { _grass.Resolve(); set.Grass = _grass; });
+                set.Fire = _fire;
+                _set = set;
+            }
+            catch (Exception e) { _error = e.Message; }
+            finally { _threadDone = true; }
+        }
+
+        /// <summary>Queue the upload of an image held as pixels (the in-memory path; see QueueTexture for the file path).</summary>
+        private void QueueArray(Color32[] px, int w, int h, Action<Texture2D> into, bool half = false)
+        {
+            var pixels = new byte[px.Length * 4];
+            for (int i = 0, o = 0; i < px.Length; i++, o += 4)
+            {
+                Color32 c = px[i];
+                pixels[o] = c.r; pixels[o + 1] = c.g; pixels[o + 2] = c.b;
+                pixels[o + 3] = _opaque ? (c.a >= 100 ? (byte)255 : (byte)0) : c.a;
+            }
+            byte[] chain = Mips.Chain(pixels, w, h, out int levels);
+            if (half && w >= 128 && h >= 128 && levels > 1)
+            {
+                int top = w * h * 4;
+                var rest = new byte[chain.Length - top];
+                Array.Copy(chain, top, rest, 0, rest.Length);
+                chain = rest; w >>= 1; h >>= 1; levels--;
+            }
+            _items.Add(() => into(Upload(chain, w, h, levels)));
+        }
+
         /// <summary>Drop the load. Main thread only: whatever the main thread already created is destroyed here; the worker's plain arrays are left to the collector.</summary>
         internal void Cancel()
         {

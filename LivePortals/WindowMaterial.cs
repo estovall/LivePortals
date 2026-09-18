@@ -55,7 +55,7 @@ namespace LivePortals
                 Mathf.LinearToGammaSpace(Mathf.Max(0f, linearGain.b)) * calib, 1f));
         }
 
-        private static Texture2D _black;
+        private static Texture2D _black, _clear;
 
         /// <summary>An opaque black material with the tested shader: writes depth, shows nothing. Null without a tested shader.</summary>
         internal static Material MakeDepthOnly()
@@ -209,14 +209,16 @@ namespace LivePortals
                 // The game's own shaders name their shine differently (Custom/Creature: _MetallicGlossMap and
                 // _MetalColor), and left at their defaults the surfaces stood glossy and mirrored the torches by the
                 // ring (0.9.22, once the pane had real normals). Every metal, gloss or specular input goes black.
-                if (_black == null) _black = Solid(new Color32(0, 0, 0, 255));
+                // Clear black, not opaque black: these shaders read smoothness from the map's alpha, and alpha 1
+                // made the surfaces perfectly smooth mirrors of the torches (0.9.24 to 0.9.31).
+                if (_clear == null) _clear = Solid(new Color32(0, 0, 0, 0));
                 for (int i = 0; i < sh.GetPropertyCount(); i++)
                 {
                     string n = sh.GetPropertyName(i), l = n.ToLowerInvariant();
                     if (!(l.Contains("metal") || l.Contains("gloss") || l.Contains("spec") || l.Contains("smooth") || l.Contains("reflect"))) continue;
                     switch (sh.GetPropertyType(i))
                     {
-                        case ShaderPropertyType.Texture: m.SetTexture(n, _black); break;
+                        case ShaderPropertyType.Texture: m.SetTexture(n, _clear); break;
                         case ShaderPropertyType.Color: m.SetColor(n, Color.black); break;
                         case ShaderPropertyType.Float: case ShaderPropertyType.Range: m.SetFloat(n, 0f); break;
                     }

@@ -102,49 +102,63 @@ namespace LivePortals
                         raw.Add(new KeyValuePair<string, Matrix4x4[]>(g.Prefab, all));
                     }
                 }
-                // Budget: keep the tufts nearest the far ring (every instance is rewritten and submitted each redraw).
-                int budget = Plugin.GrassMaxInstances.Value;
-                if (budget <= 0) return null;
-                int total = 0;
-                foreach (var kv in raw) total += kv.Value.Length;
-                if (total > budget)
-                {
-                    var flat = new List<KeyValuePair<float, KeyValuePair<string, Matrix4x4>>>(total);
-                    foreach (var kv in raw)
-                        foreach (var m in kv.Value)
-                        {
-                            float dx = m.m03, dz = m.m23;
-                            flat.Add(new KeyValuePair<float, KeyValuePair<string, Matrix4x4>>(dx * dx + dz * dz, new KeyValuePair<string, Matrix4x4>(kv.Key, m)));
-                        }
-                    flat.Sort((a, b) => a.Key.CompareTo(b.Key));
-                    var kept = new Dictionary<string, List<Matrix4x4>>();
-                    for (int k = 0; k < budget; k++)
-                    {
-                        if (!kept.TryGetValue(flat[k].Value.Key, out var list)) kept[flat[k].Value.Key] = list = new List<Matrix4x4>();
-                        list.Add(flat[k].Value.Value);
-                    }
-                    raw.Clear();
-                    foreach (var kv in kept) raw.Add(new KeyValuePair<string, Matrix4x4[]>(kv.Key, kv.Value.ToArray()));
-                }
-                // One draw call takes at most 1023 instances: split here, once, so drawing allocates nothing.
-                foreach (var kv in raw)
-                {
-                    var all = kv.Value;
-                    for (int start = 0; start < all.Length; start += 1023)
-                    {
-                        int count = Mathf.Min(1023, all.Length - start);
-                        var part = new Group { Prefab = kv.Key, Local = new Matrix4x4[count], World = new Matrix4x4[count] };
-                        System.Array.Copy(all, start, part.Local, 0, count);
-                        set.Groups.Add(part);
-                    }
-                }
-                return set;
+                return Budgeted(raw);
             }
             catch (System.Exception e)
             {
                 Plugin.Log.LogWarning("LivePortals: could not read " + Path.GetFileName(path) + ": " + e.Message);
                 return null;
             }
+        }
+
+        /// <summary>A recorded set (unbudgeted, unchunked) made ready to draw, as Read makes a stored one. Any thread.</summary>
+        internal GrassSet Budgeted()
+        {
+            var raw = new List<KeyValuePair<string, Matrix4x4[]>>();
+            foreach (var g in Groups) raw.Add(new KeyValuePair<string, Matrix4x4[]>(g.Prefab, g.Local));
+            return Budgeted(raw);
+        }
+
+        /// <summary>Keep the tufts nearest the far ring (every instance is rewritten and submitted each redraw), in draw-call-sized groups.</summary>
+        private static GrassSet Budgeted(List<KeyValuePair<string, Matrix4x4[]>> raw)
+        {
+            var set = new GrassSet();
+            int budget = Plugin.GrassMaxInstances.Value;
+            if (budget <= 0) return null;
+            int total = 0;
+            foreach (var kv in raw) total += kv.Value.Length;
+            if (total > budget)
+            {
+                var flat = new List<KeyValuePair<float, KeyValuePair<string, Matrix4x4>>>(total);
+                foreach (var kv in raw)
+                    foreach (var m in kv.Value)
+                    {
+                        float dx = m.m03, dz = m.m23;
+                        flat.Add(new KeyValuePair<float, KeyValuePair<string, Matrix4x4>>(dx * dx + dz * dz, new KeyValuePair<string, Matrix4x4>(kv.Key, m)));
+                    }
+                flat.Sort((a, b) => a.Key.CompareTo(b.Key));
+                var kept = new Dictionary<string, List<Matrix4x4>>();
+                for (int k = 0; k < budget; k++)
+                {
+                    if (!kept.TryGetValue(flat[k].Value.Key, out var list)) kept[flat[k].Value.Key] = list = new List<Matrix4x4>();
+                    list.Add(flat[k].Value.Value);
+                }
+                raw = new List<KeyValuePair<string, Matrix4x4[]>>();
+                foreach (var kv in kept) raw.Add(new KeyValuePair<string, Matrix4x4[]>(kv.Key, kv.Value.ToArray()));
+            }
+            // One draw call takes at most 1023 instances: split here, once, so drawing allocates nothing.
+            foreach (var kv in raw)
+            {
+                var all = kv.Value;
+                for (int start = 0; start < all.Length; start += 1023)
+                {
+                    int count = Mathf.Min(1023, all.Length - start);
+                    var part = new Group { Prefab = kv.Key, Local = new Matrix4x4[count], World = new Matrix4x4[count] };
+                    System.Array.Copy(all, start, part.Local, 0, count);
+                    set.Groups.Add(part);
+                }
+            }
+            return set;
         }
 
         /// <summary>Find each group's mesh and material: they belong to the clutter prefabs the game keeps loaded.</summary>

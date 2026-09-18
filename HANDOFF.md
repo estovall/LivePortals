@@ -624,6 +624,16 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     (Dictionary<ZDOID, CaptureRun>): a newer capture renders immediately with `StoreAfter` = the earlier run, and
     its worker waits (up to 60 s) for that run's Done before Storage.Clear. Async reads for all captures again
     (sync parameter kept, unused). **Untested.**
+64. 0.9.32 testing: Max, "still taking a while for it to pop up after going through" and "the portal faces still
+    has a gloss". (a) `CaptureRun.Work` now layers faces on ThreadPool threads (ProcessorCount/2, max 6) as they
+    arrive, publishes `Layers` + `Ready` and registers in `_readyRuns`; `CaptureLoader.FromMemory` builds the
+    window's textures from those arrays (`QueueArray`) and `PortalWindow.Update` (check every 0.25 s) prefers a
+    ready run with a newer TakenAt over the files; the files are encoded afterwards, also in parallel, behind
+    `StoreAfter`. The log line splits "layered in" from "stored in". `GrassSet.Budgeted()` factors the budget
+    out of Read for the recorded set. Memory: all layers of a capture stay in RAM until its files are written.
+    (b) gloss: the zeroing texture was opaque black; alpha is smoothness in these shaders; now clear black.
+    **Untested.** If the window still lags, the remaining latency is the scan (0.5 s), the loader budget
+    (4 ms/frame) and the arrival capture's frames.
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

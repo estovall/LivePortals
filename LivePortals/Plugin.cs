@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "Immersive Portals";
-        public const string VERSION = "0.9.31";
+        public const string VERSION = "0.9.32";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -573,7 +573,7 @@ namespace LivePortals
             if (run.Error != null) { Log.LogWarning("LivePortals: could not capture: " + run.Error); yield break; }
             PortalWindow.NotifyCaptureUpdated(id);
             var p0 = run.Points[0];
-            Log.LogInfo($"LivePortals: {why} capture at portal {Storage.Key(id)}: {run.Points.Count} points, {p0.Res}px faces, grid {p0.Res / p0.Step}, {run.FrontFaces} faces with foreground, {run.GrassCount} grass instances, {run.FireCount} live flame effects, forward face {p0.SkyFraction * 100f:0}% sky ({p0.DiffFraction * 100f:0}% by colour) with median depth {p0.MedianDepth:0.0} m; rendered over {run.RenderFrames} frames ({run.RenderMs:0} ms of them), layered and stored in {run.WorkSeconds:0.0} s.");
+            Log.LogInfo($"LivePortals: {why} capture at portal {Storage.Key(id)}: {run.Points.Count} points, {p0.Res}px faces, grid {p0.Res / p0.Step}, {run.FrontFaces} faces with foreground, {run.GrassCount} grass instances, {run.FireCount} live flame effects, forward face {p0.SkyFraction * 100f:0}% sky ({p0.DiffFraction * 100f:0}% by colour) with median depth {p0.MedianDepth:0.0} m; rendered over {run.RenderFrames} frames ({run.RenderMs:0} ms of them), layered in {run.LayerSeconds:0.0} s, stored in {run.WorkSeconds:0.0} s.");
         }
     }
 

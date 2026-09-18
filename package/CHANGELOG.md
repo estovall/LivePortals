@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.32 (TESTING: on the `testing` branch only, not published)
+
+- The window at the other end shows the place you just left within a moment of arriving. The capture's layers are now built on several cores while the screen is black and handed to the window straight from memory; the files are written afterwards in the background. Before, the window waited for the files, four to nine seconds after you had arrived.
+- The gloss on the pane, for real: the map that zeroed the shader's metal and gloss inputs had alpha 1, which these shaders read as full smoothness. It is fully clear now.
+
 ## 0.9.31 (TESTING: on the `testing` branch only, not published)
 
 - Stepping into a portal no longer hitches: the one-frame departure capture of 0.9.29 and 0.9.30 is gone. The game moves you two seconds after you step in, never sooner, so a departure capture spread over frames has all the time it needs.

@@ -175,17 +175,30 @@ namespace LivePortals
             _capCheckTimer -= Time.deltaTime;
             if (_capCheckTimer <= 0f)
             {
-                _capCheckTimer = 2f;
-                long stored = Storage.StoredTime(target);
-                if (stored != _capTime)
+                _capCheckTimer = 0.25f;
+                bool wantAll = dist <= Plugin.SecondaryViewpointRange.Value + 6f;
+                // A capture just taken, its layers done in memory and its files still on their way: take it now.
+                // That is how the window shows the place you came from a moment after you arrive, not the four to
+                // nine seconds the files take. Its stored form has the same time stamp, so it is not loaded twice.
+                if (CaptureRun.TryGetReady(target, out var ready) && ready.TakenAt > _capTime)
                 {
                     ReleaseCapture();
-                    _capTime = stored;
-                    if (stored >= 0)
+                    _capTime = ready.TakenAt;
+                    EnsureBuilt(gc);
+                    _loader = CaptureLoader.FromMemory(ready, !WindowMaterial.DepthWorks, wantAll ? int.MaxValue : 1);
+                }
+                else
+                {
+                    long stored = Storage.StoredTime(target);
+                    if (stored != _capTime && !(stored < _capTime && _loader != null))
                     {
-                        EnsureBuilt(gc); // first: it decides (WindowMaterial) how the capture has to be loaded
-                        bool wantAll = dist <= Plugin.SecondaryViewpointRange.Value + 6f;
-                        _loader = CaptureLoader.Start(target, !WindowMaterial.DepthWorks, 0, wantAll ? int.MaxValue : 1);
+                        ReleaseCapture();
+                        _capTime = stored;
+                        if (stored >= 0)
+                        {
+                            EnsureBuilt(gc); // first: it decides (WindowMaterial) how the capture has to be loaded
+                            _loader = CaptureLoader.Start(target, !WindowMaterial.DepthWorks, 0, wantAll ? int.MaxValue : 1);
+                        }
                     }
                 }
             }
