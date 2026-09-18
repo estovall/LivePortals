@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.26 (TESTING: on the `testing` branch only, not published)
+
+- The departure capture no longer goes missing on quick trips. It waited 0.8 s and then only fired if you were still mid-teleport; between portals in one base the game's fast load has already moved you by then, so the place you came from was never captured until a second trip. It now fires either way. A capture that arrives while the previous one of the same portal is still being stored waits for it instead of being dropped.
+
 ## 0.9.25 (TESTING: on the `testing` branch only, not published)
 
 - No dark outline round the clouds. The live clouds leave the window texture's alpha below one at their soft edges and the picture sprite blends by that alpha, against a black plug. The plug now shows the picture as emission as well, so those edges show the same colour through instead of black.

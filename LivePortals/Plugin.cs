@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "Immersive Portals";
-        public const string VERSION = "0.9.25";
+        public const string VERSION = "0.9.26";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -491,7 +491,11 @@ namespace LivePortals
         private IEnumerator DepartureCapture(TeleportWorld portal, Player player)
         {
             yield return new WaitForSeconds(DepartureDelay.Value);
-            if (portal == null || player == null || !player.IsTeleporting()) yield break; // the teleport was refused
+            // Not conditional on still being mid-teleport: with the far side already loaded (portals in one base)
+            // the game's fast load has moved you within the delay, and up to 0.9.24 that dropped the departure
+            // capture, so the place you came from was never shown until a second trip. The portal you left is
+            // still loaded then, and you are not in its picture either way.
+            if (portal == null || player == null) { Dbg("departure capture skipped: the portal is gone"); yield break; }
             CaptureAt(portal, "departure");
         }
 
@@ -542,7 +546,16 @@ namespace LivePortals
             var nview = portal != null ? portal.GetComponent<ZNetView>() : null;
             if (nview == null || !nview.IsValid()) yield break;
             ZDOID id = nview.GetZDO().m_uid;
-            if (!_busy.Add(id)) { Dbg("capture of " + Storage.Key(id) + " already running, skipped"); yield break; }
+            if (_busy.Contains(id))
+            {
+                // A capture of this portal is still being stored (arriving, then straight back in): wait for it
+                // rather than drop this one, which is the more recent view.
+                Dbg("capture of " + Storage.Key(id) + " already running; this " + why + " capture waits for it");
+                float until = Time.realtimeSinceStartup + 30f;
+                while (_busy.Contains(id) && Time.realtimeSinceStartup < until) yield return null;
+                if (_busy.Contains(id) || portal == null) { Dbg("capture of " + Storage.Key(id) + " dropped: the earlier one did not finish or the portal is gone"); yield break; }
+            }
+            _busy.Add(id);
 
             var run = new CaptureRun(portal, id);
             try { run.Prepare(); }

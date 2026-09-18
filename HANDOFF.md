@@ -593,6 +593,11 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     black, so at alpha < 1 the same colour shows through. The plug's night darkening can only affect those
     fringe pixels at weight (1 - a). Alternatives rejected: an RGB-only RT format (float formats show linear as
     sRGB, the 0.8.7 orange problem), Unlit/Texture (not in the build). **Untested.**
+58. 0.9.26 testing: Max: "sometimes it doesnt capture a portals view when going into it, only coming out".
+    Log showed arrival -> arrival with no departure between. `DepartureCapture` required `IsTeleporting()` after
+    `DepartureDelay`; with the far side loaded (same base) Valheim 1.0's fast load completes the teleport inside
+    the delay. Requirement dropped (the portal is still loaded, the player is elsewhere). `CaptureSeries` now
+    waits up to 30 s for a running capture of the same portal instead of skipping. **Untested.**
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 
