@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.37 (TESTING: on the `testing` branch only, not published)
+
+- A capture taken on a moonless night no longer comes up as a milky blue film when seen under a moon. The base of the picture was scaled by the sun ratio even when the capture had no sun in it; it now follows the sun and ambient ratios in the proportions the capture was lit with.
+
 ## 0.9.36 (TESTING: on the `testing` branch only, not published)
 
 - Departure captures survive distant teleports. The game starts loading the far zones the moment you step in, and at the few frames a second that leaves, a capture rendering one face per frame did not finish before the place behind you unloaded. Departures now render several faces per frame, and while one is still rendering the teleport is held just short of its two-second mark: nothing changes in ordinary play, a crawling teleport takes a fraction of a second longer under the loading screen.

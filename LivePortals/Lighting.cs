@@ -49,7 +49,15 @@ namespace LivePortals
             // under a moon at 0.4) was scaled to the old cap of 4 and came out blown out and blocky, the 8-bit
             // picture having nothing to brighten. Dimming stays free. The 0.05 floor keeps two tiny values from
             // making a large ratio.
-            float ratio = Mathf.Clamp((Luminance(sun) + 0.05f) / (Luminance(cap.Sun) + 0.05f), 0.04f, MaxBrighten);
+            float sunRatio = Mathf.Clamp((Luminance(sun) + 0.05f) / (Luminance(cap.Sun) + 0.05f), 0.04f, MaxBrighten);
+            float ambRatio = Mathf.Clamp((Luminance(amb) + 0.05f) / (Luminance(cap.Ambient) + 0.05f), 0.04f, MaxBrighten);
+            // The picture is lit by sun and sky in the shares the capture had. A capture with no sun in it (a
+            // moonless night: sun 0, ambient blue) has nothing for a sun ratio to scale; up to 0.9.36 it was scaled
+            // by it anyway, and seen under a moon the dark picture came up 1.5x as a milky blue film. Its base
+            // follows the two ratios in the capture's own proportions; the sky layer then adds only what the
+            // ambient ratio still lacks.
+            float sunShare = Mathf.Clamp01(0.65f * Luminance(cap.Sun) / Level(cap.Sun, cap.Ambient));
+            float ratio = Mathf.Lerp(ambRatio, sunRatio, sunShare);
             Color chroma = Color.white;
             float thenLum = Luminance(cap.Sun), nowLum = Luminance(sun);
             if (thenLum > 0.01f && nowLum > 0.01f)

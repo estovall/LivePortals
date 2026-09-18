@@ -664,6 +664,13 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     `Player.m_teleportTimer` to 1.5 s while the departure run has not RenderedAll. The self-test on this PC:
     "picture drawn with Sprites/Default, alpha ignored" (0.9.35 confirmed; night windows match their dumps).
     **Untested.**
+69. 0.9.37 testing: Max's five screenshots of one window (an interior, blue milky wash, gold-pink patch that shifts
+    with the angle), numpad 5 at each: the dump shows the same wash, so it is in the picture. Dump line: shows
+    1_439902, captured under sun (0,0,0) ambient (0.2,0.36,0.46), now under a moon: sun tint 1.5 (MaxBrighten),
+    sky gain 0. `SplitTint` now blends `ambRatio` and `sunRatio` by `sunShare` = 0.65*lum(cap.Sun)/Level(cap):
+    a sunless capture follows the ambient ratio only. The pink patch is the torchlight layer over the smeared
+    skirt geometry at oblique angles (not touched). None of the numpad diagnostics changed the look, which
+    confirmed the pane is clean. **Untested.**
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 
