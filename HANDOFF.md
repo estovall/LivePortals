@@ -312,6 +312,18 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     underscore because Hexium allows no spaces; plugin NAME is "Immersive Portals", GUID/DLL/config/repo keep
     LivePortals. Zip = package\* + LivePortals.dll at the root. Later versions: bump manifest + VERSION, changelog,
     build, zip, publish (Hexium rejects duplicate versions; new versions of existing packages can take hours to list).
+32. 0.9.8, Max (night screenshot): "the torches arent contributing since we arent rendering the flames". Two causes:
+    flames are particles and were hidden for the capture; the tone match darkens torch-lit walls with everything
+    else. Now `Capture.RenderLocalLight` renders each face once more into rig.A with directional lights off,
+    ambient/reflections/fog off and the `_AmbientColor/_SunColor/_SunFogColor` globals black (slot 4 of FaceRaw);
+    `Layers.Process` turns it into `FaceLayers.Local` (half res, background pixels only) saved as `_p0_l<i>.png`;
+    `WindowMaterial` self-tests an additive shader (`AdditiveWorks`, `MakeAdditive`, gain calibrated with a
+    half-bright texture) and `BuildReliefs` adds a "Glow" layer on the Back mesh, untinted (`Relief.Untinted`).
+    `IsFlame` keeps particle renderers that are small (<3 m bounds) and within 1.5 m of a non-directional Light on
+    the same net object. Spill light uses `AverageLocalLuminance` untinted. **Untested**: watch the self-test log
+    for "local-light layer via <shader>" (if "NO additive shader passed", torchlight still follows the sun and the
+    flames alone come back); check that the local pass really has no sun (a sunlit wall should be black in
+    `_l` PNGs) and that flames are not smeared.
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

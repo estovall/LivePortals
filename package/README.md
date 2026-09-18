@@ -30,8 +30,9 @@ you a live view. Instead, it shows you the last one you saw.
   current sun, ambient light and fog compared with when it was taken, so a noon capture darkens at night and warms
   at dusk. The grass on the far side is drawn as real grass and sways in the wind.
 * **The rest is frozen.** Creatures and players who were in view when the picture was taken stay where they were.
-  Shadows stay where the sun was. A torch that has since gone out still burns in the window until your next trip
-  updates it.
+  Shadows stay where the sun was. Torches and fires keep burning at their captured brightness whatever the time of
+  day, because their light is captured separately from the sun's; one that has since gone out still burns in the
+  window until your next trip updates it.
 
 Captures are stored on your PC only and survive restarts. You see your own last trips: walk through once and both
 windows are set from then on.
@@ -62,6 +63,7 @@ of faces per frame and finished on a background thread, so a trip does not stall
 | `LiveSky` | on | Draw the current sky behind the capture |
 | `ToneMatch` | 1 | How strongly captures follow the current lighting (0 = as captured) |
 | `CaptureFog` | on | Capture with the game's own distance fog and ambient occlusion |
+| `CaptureLocalLight` / `CaptureFlames` | on / on | Keep torchlight and firelight untinted at night (a second capture per face with the sun off); keep the flames of torches and fires in the capture |
 | `GrassGap` | 0.75 m | Grass this close to the far portal's centre is not drawn in the window |
 | `CaptureExposure` | 1 | Brightness of captures |
 | `PortalLight` / `PortalLightRange` | 1 / 8 m | The spill light; 0 turns it off |

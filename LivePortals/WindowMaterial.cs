@@ -34,6 +34,22 @@ namespace LivePortals
 
         private static bool _tested;
         private static Setup _setup;
+        private static Shader _addShader;
+        private static string _addColorProp;
+        private static float _addGain = 1f;
+        /// <summary>An additive, depth-tested shader was found: the local-light layer can be drawn on top of the reliefs.</summary>
+        internal static bool AdditiveWorks => _addShader != null;
+
+        /// <summary>Material that adds tex (the local light) onto whatever the relief already shows, untinted.</summary>
+        internal static Material MakeAdditive(Texture tex)
+        {
+            var m = new Material(_addShader) { mainTexture = tex };
+            if (_addColorProp != null) m.SetColor(_addColorProp, new Color(_addGain, _addGain, _addGain, 1f));
+            if (m.HasProperty("_Cull")) m.SetInt("_Cull", (int)CullMode.Off);
+            if (m.HasProperty("_ZWrite")) m.SetInt("_ZWrite", 0);
+            m.renderQueue = (int)RenderQueue.Transparent + 5;
+            return m;
+        }
         internal static bool DepthWorks => _setup != null;
         internal static bool DoubleSidedMeshes => _setup != null && !_setup.HasCull;
         internal static string Summary { get; private set; } = "untested";
@@ -292,6 +308,69 @@ namespace LivePortals
                         }
                     }
                 }
+            // ---- An additive shader for the local-light layer: adds its texture onto what is already drawn, adds
+            // nothing where the texture is black, and is hidden behind nearer surfaces. ----
+            if (_setup != null)
+            {
+                try
+                {
+                    var addCands = new List<Shader>();
+                    foreach (var sh in all)
+                        if (sh != null && sh.isSupported && sh.FindPropertyIndex("_MainTex") >= 0 && !sh.name.StartsWith("Hidden/")) addCands.Add(sh);
+                    int Score(Shader sh) { string n = sh.name.ToLowerInvariant(); return n.Contains("additive") ? 0 : n.Contains("particle") ? 1 : n.Contains("unlit") ? 2 : 3; }
+                    addCands.Sort((x, y) => Score(x) != Score(y) ? Score(x).CompareTo(Score(y)) : string.CompareOrdinal(x.name, y.name));
+                    Texture2D black = Solid(new Color32(0, 0, 0, 255)), grey = Solid(new Color32(0, 128, 0, 255));
+                    var opaque = new Material(_setup.Shader);
+                    var nearMr = nearGo.GetComponent<MeshRenderer>(); var farMr = farGo.GetComponent<MeshRenderer>();
+                    cam.renderingPath = _setup.Forward ? RenderingPath.Forward : defaultPath;
+                    int addTries = 0;
+                    foreach (var sh in addCands)
+                    {
+                        if (_addShader != null || addTries >= 120) break;
+                        addTries++;
+                        var a = new Material(sh);
+                        try
+                        {
+                            string prop = a.HasProperty("_Color") ? "_Color" : a.HasProperty("_TintColor") ? "_TintColor" : null;
+                            if (prop != null) a.SetColor(prop, Color.white);
+                            if (a.HasProperty("_Cull")) a.SetInt("_Cull", (int)CullMode.Off);
+                            a.renderQueue = (int)RenderQueue.Transparent;
+                            // 1. Green added over red must give yellow.
+                            Configure(opaque, _setup, red, 0.5f); opaque.renderQueue = 2450;
+                            a.mainTexture = green;
+                            nearMr.sharedMaterial = a; farMr.sharedMaterial = opaque;
+                            Color32 sum = Shoot(cam, rt, read, nearGo, farGo);
+                            // 2. Black must add nothing.
+                            a.mainTexture = black;
+                            Color32 none = Shoot(cam, rt, read, nearGo, farGo);
+                            // 3. Behind an opaque red quad it must not show.
+                            a.mainTexture = green;
+                            nearMr.sharedMaterial = opaque; farMr.sharedMaterial = a;
+                            Color32 hidden = Shoot(cam, rt, read, nearGo, farGo);
+                            bool ok = sum.r > 150 && sum.g > 150 && IsRed(none) && IsRed(hidden);
+                            if (ok)
+                            {
+                                // 4. Gain: half-bright green over black should read half bright.
+                                Configure(opaque, _setup, black, 0.5f);
+                                a.mainTexture = grey;
+                                nearMr.sharedMaterial = a; farMr.sharedMaterial = opaque;
+                                Color32 g = Shoot(cam, rt, read, nearGo, farGo);
+                                float gain = g.g > 8 ? 128f / g.g : 1f;
+                                if (prop == null && Mathf.Abs(gain - 1f) > 0.25f) ok = false;
+                                else { _addShader = sh; _addColorProp = prop; _addGain = Mathf.Clamp(gain, 0.2f, 5f); }
+                                log.Append($" additive {sh.name}: {Hex(sum)} {Hex(none)} {Hex(hidden)} grey {g.g}{(ok ? " OK" : " (no gain control)")};");
+                            }
+                            else if (addTries <= 12) log.Append($" additive {sh.name}: {Hex(sum)} {Hex(none)} {Hex(hidden)};");
+                        }
+                        catch (System.Exception e) { log.Append($" additive {sh.name}: threw {e.Message};"); }
+                        Object.Destroy(a);
+                    }
+                    nearMr.sharedMaterial = null; farMr.sharedMaterial = null;
+                    Object.Destroy(opaque); Object.Destroy(black); Object.Destroy(grey);
+                    log.Append(_addShader != null ? $" local-light layer via {_addShader.name} (gain {_addGain:0.00});" : " NO additive shader passed: torchlight will follow the time of day;");
+                }
+                catch (System.Exception e) { log.Append(" additive self-test threw: " + e.Message); }
+            }
             }
             catch (System.Exception e) { log.Append(" self-test threw: " + e.Message); }
             finally

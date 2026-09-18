@@ -25,6 +25,7 @@ namespace LivePortals
             public readonly List<Renderer> Renderers = new List<Renderer>(); // what the capture really saw
             public readonly List<Renderer> Under = new List<Renderer>();     // skirts, drawn first
             public readonly List<Material> Materials = new List<Material>();
+            public readonly List<Material> Untinted = new List<Material>(); // the local-light layers: never tinted
             public readonly List<Texture> Textures = new List<Texture>(); // blurred copies, ours to destroy
         }
 
@@ -486,7 +487,9 @@ namespace LivePortals
             if (strength <= 0f) { _light.enabled = false; return; }
             Lighting.Sample(out var sun, out var amb, out _, out _);
             float here = Mathf.Clamp01(Lighting.Level(sun, amb));
-            float there = Mathf.Clamp01(cap.AverageLuminance * Lighting.Luminance(tint) * 1.6f);
+            // The sunlit part of the far side follows the tint; its torchlight does not.
+            float local = Mathf.Clamp(cap.AverageLocalLuminance, 0f, cap.AverageLuminance);
+            float there = Mathf.Clamp01(((cap.AverageLuminance - local) * Lighting.Luminance(tint) + local) * 1.6f);
             float intensity = strength * 3f * Mathf.Clamp01(there - here * 0.8f) * alpha;
             _light.transform.position = c + outward * 0.4f;
             _light.transform.rotation = Quaternion.LookRotation(outward, Vector3.up);
@@ -619,6 +622,10 @@ namespace LivePortals
                         var filled = AddLayer(rl, f.transform, "BackFilled", back, cap.Faces[i], false, Layers.CutoffAll, order);
                         if (filled != null) filled.localScale = Vector3.one * Layers.FilledPush;
                     }
+                    // Torchlight, firelight and glowing things: added on top of the background, never tinted, so
+                    // they do not fade with the sun the way the rest of the picture does at night.
+                    if (k == 0 && cap.Locals[i] != null && WindowMaterial.AdditiveWorks)
+                        AddLayer(rl, f.transform, "Glow", back, WindowMaterial.MakeAdditive(cap.Locals[i]), false, rl.Untinted);
                     // The guesses (skirts, shell) show a blurred copy of the picture: one row of texels stretched
                     // over a skirt reads as a fan of streaks, the same colours blurred read as haze.
                     // (0.8.6 to 0.8.10 used a blurred copy here. It bled the colours of near things into the fill and
@@ -662,18 +669,24 @@ namespace LivePortals
         private static Transform AddLayer(Relief rl, Transform parent, string name, Mesh mesh, Texture tex, bool under, float cutoff, int order)
         {
             if (mesh == null) return null;
+            var mat = under ? WindowMaterial.MakeUnder(tex, order) : WindowMaterial.Make(tex, cutoff, order);
+            return AddLayer(rl, parent, name, mesh, mat, under, rl.Materials);
+        }
+
+        private static Transform AddLayer(Relief rl, Transform parent, string name, Mesh mesh, Material mat, bool under, List<Material> owner)
+        {
+            if (mesh == null) { Destroy(mat); return null; }
             var go = new GameObject(name);
             go.layer = Plugin.FaceLayer;
             go.transform.SetParent(parent, false);
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
             var mr = go.AddComponent<MeshRenderer>();
-            var mat = under ? WindowMaterial.MakeUnder(tex, order) : WindowMaterial.Make(tex, cutoff, order);
             mr.sharedMaterial = mat;
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             mr.receiveShadows = false;
             mr.enabled = false;
             (under ? rl.Under : rl.Renderers).Add(mr);
-            rl.Materials.Add(mat);
+            owner.Add(mat);
             return go.transform;
         }
 
@@ -682,6 +695,7 @@ namespace LivePortals
             foreach (var rl in _reliefs)
             {
                 foreach (var m in rl.Materials) Destroy(m);
+                foreach (var m in rl.Untinted) Destroy(m);
                 foreach (var t in rl.Textures) Destroy(t);
                 if (rl.Anchor != null) Destroy(rl.Anchor);
             }

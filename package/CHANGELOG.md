@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.8
+
+- Torches and fires light the window at night. Each face is also captured with the sun and sky light switched off, which leaves only what torches, fires and glowing things contribute; that part is added on top of the picture untinted, so torchlight stays as bright at night as by day while sunlit parts still follow the time of day. The spill light does the same.
+- Flames are back. The small particle effects that sit at a light (torch flames, fire, embers) stay in the capture; smoke, mist and weather are still left out.
+- New settings `CaptureLocalLight` and `CaptureFlames` (both on). Existing captures have no local-light layer until the next trip through them.
+
 ## 0.9.7
 
 - Published on Hexium as **Immersive Portals** (the plugin file, config and GitHub repository keep the LivePortals name). Rewritten description: cosmetic, client-side, and how the window works without loading the far side.

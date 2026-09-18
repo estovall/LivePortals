@@ -9,6 +9,9 @@ namespace LivePortals
     {
         public Color32[] Back;   // background colour: alpha 255 as captured, FilledAlpha where filled in under near things, 0 on sky
         public Color32[] Front;  // foreground colour: alpha 255 only on near things; null if the face has none
+        /// <summary>Light that does not come from the sun or the sky (torches, fires, glowing things, flames), on the background only, at LocalRes per edge; null when not captured.</summary>
+        public Color32[] Local;
+        public int LocalRes;
         public FaceGrids Grids;
     }
 
@@ -301,10 +304,34 @@ namespace LivePortals
                     bgCell[c] = cnt > 0 ? (float)(sum / cnt) : range;
                 }
 
+            // ---- 7. Local light, at half resolution (it is smooth), only where the background was really seen ----
+            Color32[] local = null; int lres = 0;
+            if (raw.Local != null)
+            {
+                lres = res / 2;
+                local = new Color32[lres * lres];
+                for (int y = 0; y < lres; y++)
+                    for (int x = 0; x < lres; x++)
+                    {
+                        int r = 0, g = 0, b = 0, cnt = 0;
+                        for (int dy = 0; dy < 2; dy++)
+                            for (int dx = 0; dx < 2; dx++)
+                            {
+                                int p = (y * 2 + dy) * res + x * 2 + dx;
+                                if (fg[p] != 0 || sky[p]) continue;
+                                Color32 c = raw.Local[p];
+                                r += c.r; g += c.g; b += c.b; cnt++;
+                            }
+                        local[y * lres + x] = cnt > 0 ? new Color32((byte)(r / cnt), (byte)(g / cnt), (byte)(b / cnt), 255) : new Color32(0, 0, 0, 255);
+                    }
+            }
+
             return new FaceLayers
             {
                 Back = back,
                 Front = front,
+                Local = local,
+                LocalRes = lres,
                 Grids = new FaceGrids { BgNode = bgNode, BgCell = bgCell, FgNode = fgNode, FgCell = fgCell },
             };
         }

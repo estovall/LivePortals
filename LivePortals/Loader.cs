@@ -82,6 +82,7 @@ namespace LivePortals
                     if (meta.TryGetValue(pre + "fog", out var f)) cap.Fog = Storage.P(f);
                     if (meta.TryGetValue(pre + "dayFraction", out var df)) float.TryParse(df, NumberStyles.Float, CultureInfo.InvariantCulture, out cap.DayFraction);
                     if (meta.TryGetValue(pre + "avgLum", out var al)) float.TryParse(al, NumberStyles.Float, CultureInfo.InvariantCulture, out cap.AverageLuminance);
+                    if (meta.TryGetValue(pre + "avgLocalLum", out var all)) float.TryParse(all, NumberStyles.Float, CultureInfo.InvariantCulture, out cap.AverageLocalLuminance);
                     if (meta.TryGetValue(pre + "avgColor", out var ac)) cap.AverageColor = Storage.P(ac);
                     if (meta.TryGetValue(pre + "offset", out var os)) offset = Storage.PV(os);
                     set.Captures.Add(cap);
@@ -94,6 +95,7 @@ namespace LivePortals
                         if (!QueueTexture(Storage.FacePath(_dir, _key, p, i), t => cap.Faces[face] = t)) { _error = "face " + i + " of point " + p + " missing or unreadable"; return; }
                         // The foreground is drawn from the primary viewpoint only (see PortalWindow.BuildReliefs).
                         if (p == 0) QueueTexture(Storage.FrontPath(_dir, _key, p, i), t => cap.Fronts[face] = t);
+                        if (p == 0 && WindowMaterial.AdditiveWorks) QueueTexture(Storage.LocalPath(_dir, _key, p, i), t => cap.Locals[face] = t);
                         int n = cap.Grid;
                         var back = ReliefMesh.BackgroundData(g, n);
                         var skirt = ReliefMesh.SkirtData(g, n);

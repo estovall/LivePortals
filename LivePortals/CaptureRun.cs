@@ -217,23 +217,24 @@ namespace LivePortals
         public Quaternion Rot;
         public bool NeedGpu, Flip;
         public Color32[] RawCol, SkyA, SkyB; // colour with fog; the black- and white-cleared sky-mask pair
+        public Color32[] RawLocal;           // colour by local lights and emission only (null when not captured)
         public float[] Gpu;                  // device depth
         public RawFace Composed;             // only when depth comes from rays (main thread)
-        public readonly AsyncGPUReadbackRequest[] Req = new AsyncGPUReadbackRequest[4];
-        public readonly bool[] Issued = new bool[4];
+        public readonly AsyncGPUReadbackRequest[] Req = new AsyncGPUReadbackRequest[5];
+        public readonly bool[] Issued = new bool[5];
         public bool Error;
 
         public bool Ready => RawCol != null && SkyA != null && SkyB != null && (!NeedGpu || Gpu != null);
 
         public void Set(int slot, Color32[] px)
         {
-            if (slot == 0) RawCol = px; else if (slot == 1) SkyA = px; else SkyB = px;
+            if (slot == 0) RawCol = px; else if (slot == 1) SkyA = px; else if (slot == 2) SkyB = px; else RawLocal = px;
         }
 
         /// <summary>Main thread: take whatever has arrived. True once everything is here, or something failed.</summary>
         public bool Collect()
         {
-            for (int s = 0; s < 4; s++)
+            for (int s = 0; s < 5; s++)
             {
                 if (!Issued[s]) continue;
                 var r = Req[s];
@@ -245,6 +246,6 @@ namespace LivePortals
             return Ready;
         }
 
-        public void Release() { RawCol = SkyA = SkyB = null; Gpu = null; }
+        public void Release() { RawCol = SkyA = SkyB = RawLocal = null; Gpu = null; }
     }
 }

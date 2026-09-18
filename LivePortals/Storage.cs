@@ -71,6 +71,7 @@ namespace LivePortals
 
         internal static string FacePath(string dir, string key, int p, int i) => Path.Combine(dir, key + "_p" + p + "_" + i + ".png");
         internal static string FrontPath(string dir, string key, int p, int i) => Path.Combine(dir, key + "_p" + p + "_f" + i + ".png");
+        internal static string LocalPath(string dir, string key, int p, int i) => Path.Combine(dir, key + "_p" + p + "_l" + i + ".png");
         internal static string GridPath(string dir, string key, int p) => Path.Combine(dir, key + "_p" + p + ".bin");
         internal static string MetaPath(string dir, string key) => Path.Combine(dir, key + ".txt");
         internal static string GrassPath(string dir, string key) => Path.Combine(dir, key + "_grass.bin");
@@ -112,6 +113,8 @@ namespace LivePortals
             File.WriteAllBytes(FacePath(job.Dir, job.Key, p, i), ImageConversion.EncodeArrayToPNG(face.Back, GraphicsFormat.R8G8B8A8_SRGB, (uint)res, (uint)res));
             if (face.Front != null)
                 File.WriteAllBytes(FrontPath(job.Dir, job.Key, p, i), ImageConversion.EncodeArrayToPNG(face.Front, GraphicsFormat.R8G8B8A8_SRGB, (uint)res, (uint)res));
+            if (face.Local != null && p == 0)
+                File.WriteAllBytes(LocalPath(job.Dir, job.Key, p, i), ImageConversion.EncodeArrayToPNG(face.Local, GraphicsFormat.R8G8B8A8_SRGB, (uint)face.LocalRes, (uint)face.LocalRes));
         }
 
         internal static void SavePoint(Job job, int p, RawPoint pt, FaceGrids[] grids)
@@ -140,6 +143,7 @@ namespace LivePortals
             job.Lines.Add(pre + "fog=" + C(pt.Fog));
             job.Lines.Add(pre + "dayFraction=" + pt.DayFraction.ToString("R", CultureInfo.InvariantCulture));
             job.Lines.Add(pre + "avgLum=" + pt.AverageLuminance.ToString("R", CultureInfo.InvariantCulture));
+            job.Lines.Add(pre + "avgLocalLum=" + pt.AverageLocalLuminance.ToString("R", CultureInfo.InvariantCulture));
             job.Lines.Add(pre + "avgColor=" + C(pt.AverageColor));
         }
 

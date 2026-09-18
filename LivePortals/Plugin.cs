@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "Immersive Portals";
-        public const string VERSION = "0.9.7";
+        public const string VERSION = "0.9.8";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -64,6 +64,8 @@ namespace LivePortals
         internal static ConfigEntry<float> ToneMatch;
         internal static ConfigEntry<float> CaptureExposure;
         internal static ConfigEntry<bool> CaptureFog;
+        internal static ConfigEntry<bool> CaptureLocalLight;
+        internal static ConfigEntry<bool> CaptureFlames;
         internal static ConfigEntry<float> GrassGap;
         internal static ConfigEntry<float> PortalLight;
         internal static ConfigEntry<float> PortalLightRange;
@@ -190,6 +192,10 @@ namespace LivePortals
                     new AcceptableValueRange<float>(0.2f, 3f)));
             CaptureFog = Config.Bind("4. Look", "CaptureFog", true,
                 "Capture with the game's own distance fog and ambient occlusion (its post-processing stack, everything else in it switched off). Off = raw geometry colours, which look too crisp and bright at a distance.");
+            CaptureLocalLight = Config.Bind("4. Look", "CaptureLocalLight", true,
+                "Also capture what torches, fires and glowing things alone contribute, and show that part untinted: torchlight in the window then stays as bright at night as by day, while sunlit parts still follow the time of day.");
+            CaptureFlames = Config.Bind("4. Look", "CaptureFlames", true,
+                "Keep the flames of torches and fires in the capture (other particle effects, like smoke and weather, are left out).");
             GrassGap = Config.Bind("4. Look", "GrassGap", 0.75f,
                 new ConfigDescription("Grass closer than this to the far portal's centre is not drawn in the window, metres (blades standing in the ring itself).",
                     new AcceptableValueRange<float>(0f, 10f)));
