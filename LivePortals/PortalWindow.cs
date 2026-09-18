@@ -647,7 +647,13 @@ namespace LivePortals
                 _overlayRenderer.enabled = false;
                 _overlayMat = new Material(FindShader("Sprites/Default", "Unlit/Transparent", "Unlit/Texture"));
                 _overlayMat.mainTexture = _rt;
-                _overlayMat.renderQueue = 2950; // in the transparent stage, but before the game's swirl (3000)
+                // Drawn at the end of the opaque stage (queue 2450, in the forward pass since a sprite has no G-buffer
+                // pass): after the deferred lighting and the screen effects that read the G-buffer, which is what
+                // darkened the old emissive pane at night, but before the mist and everything else composited
+                // from the depth buffer, which then cover it the way they cover the frame (0.9.10 to 0.9.17 drew it
+                // in the transparent stage, and the Mistlands mist never touched it). The game's swirl (3000) still
+                // draws after it, over the picture.
+                _overlayMat.renderQueue = 2450;
                 _overlayRenderer.sharedMaterial = _overlayMat;
             }
 

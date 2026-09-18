@@ -374,6 +374,12 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     The "portal effect" = the vanilla swirl I hid in 0.9.13; back on (HideSwirl false, ConfigVersion 3 migration),
     the sprite at renderQueue 2950 (before the swirl's 3000) and the plug 3 cm behind the pane so the swirl passes
     the depth test and draws over the picture. **Untested.**
+41. 0.9.18, Max: "in the mistlands mist the portal is visible through all of it" (window crisp, frame hidden).
+    The mist is composited from depth at the end of the opaque stage; a transparent-queue sprite draws after it.
+    Sprite renderQueue 2950 -> 2450: forward-rendered (no G-buffer pass) at the end of the opaque stage, so
+    G-buffer effects (the night darkening) miss it but the mist/fog composite covers it. If night goes dark again
+    with this, the darkening effect is not G-buffer based and the queue has to go back to 2950 with the mist
+    accepted. **Untested.**
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

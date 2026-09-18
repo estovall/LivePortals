@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.18
+
+- Mist covers the window. The Mistlands mist (and anything else the game composites from the depth buffer) is applied at the end of the opaque stage; the picture was drawn after it and stayed crisp through any amount of mist. It is now drawn at the end of the opaque stage itself, after the effects that darkened the old pane at night but before the mist.
+
 ## 0.9.17
 
 - The game's swirl plays over the picture again, as it did in vanilla and in 0.9.7. The picture is now drawn just before it and the plug sits a little behind the pane, so the swirl neither hides the picture nor fights it. `HideSwirl` is off; files that had it on are brought back.
