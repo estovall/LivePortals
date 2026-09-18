@@ -657,6 +657,13 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     hides them too. Watch the self-test line for "picture drawn with ..., alpha ignored" or "NO picture shader
     ignores alpha". **Untested.** If none passes, the next option is forcing the RT alpha to 1 after the passes
     (no stock shader writes alpha alone) or an RGB-only RT format with a gamma fix.
+68. 0.9.36 testing: on 0.9.35 four departures failed "the portal went away during the capture", each next to a
+    perf line at 9 fps with 0 windows: distant teleports load the far zones during the 2 s and the 21-frame
+    capture did not finish. `CaptureRun.Departure` renders >= 3 faces per frame with 3x the frame budget and sets
+    `RenderedAll` when every face is issued; `Plugin.HoldTeleportForCapture` (each Update) clamps
+    `Player.m_teleportTimer` to 1.5 s while the departure run has not RenderedAll. The self-test on this PC:
+    "picture drawn with Sprites/Default, alpha ignored" (0.9.35 confirmed; night windows match their dumps).
+    **Untested.**
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.36 (TESTING: on the `testing` branch only, not published)
+
+- Departure captures survive distant teleports. The game starts loading the far zones the moment you step in, and at the few frames a second that leaves, a capture rendering one face per frame did not finish before the place behind you unloaded. Departures now render several faces per frame, and while one is still rendering the teleport is held just short of its two-second mark: nothing changes in ordinary play, a crawling teleport takes a fraction of a second longer under the loading screen.
+
 ## 0.9.35 (TESTING: on the `testing` branch only, not published)
 
 - The picture no longer depends on the window texture's alpha. The sprite that shows the picture multiplied it by that alpha, which the deferred passes leave well below one over most of the picture; at night that showed as a shadow over the window with the live grass standing out bright through it, and by day as the gloss and the dark rims round clouds. The start-up self-test now picks a picture shader that ignores alpha (Sprites/Default with its external-alpha input, or an additive one), and the plug behind it is plain black again.

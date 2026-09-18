@@ -44,6 +44,10 @@ namespace LivePortals
 
         /// <summary>An earlier capture of the same portal whose files are still being written: this one's writing waits for it.</summary>
         internal CaptureRun StoreAfter;
+        /// <summary>A departure: the place unloads two seconds after stepping in, so render more per frame, and Plugin holds the teleport until RenderedAll.</summary>
+        internal bool Departure;
+        /// <summary>Every face has been rendered (its pixels may still be on their way back). The place may go now.</summary>
+        internal volatile bool RenderedAll;
 
         // ---- The result in memory, for the window at the other end to show before the files are written ----
         /// <summary>The layers of every face, [point][face], once Ready. The window loads from these; the files follow.</summary>
@@ -121,6 +125,7 @@ namespace LivePortals
         internal IEnumerator Render()
         {
             int perFrame = Mathf.Max(1, Plugin.CaptureFacesPerFrame.Value);
+            if (Departure) perFrame = Mathf.Max(perFrame, 3);
             while (_issued < _faces.Count)
             {
                 if (_portal == null || _abort) { Fail("the portal went away during the capture"); yield break; }
@@ -131,7 +136,7 @@ namespace LivePortals
                     // At most perFrame faces, and no further face once this frame has spent its budget: a face is five
                     // or six camera renders, 25 ms on a middling machine, and two of them back to back is a frame
                     // at 20 fps, eleven times in a row.
-                    float budget = Plugin.CaptureFrameBudgetMs.Value / 1000f;
+                    float budget = Plugin.CaptureFrameBudgetMs.Value / 1000f * (Departure ? 3f : 1f);
                     for (int n = 0; n < perFrame && _issued < _faces.Count && (n == 0 || Time.realtimeSinceStartup - t0 < budget); n++, _issued++) Capture.RenderFace(_rig, _faces[_issued]);
                 }
                 catch (Exception e) { Fail("render failed: " + e.Message); }
@@ -142,6 +147,7 @@ namespace LivePortals
                 if (!Collect()) yield break;
                 yield return null;
             }
+            RenderedAll = true;
             float deadline = Time.realtimeSinceStartup + 8f;
             while (_collected < _faces.Count)
             {

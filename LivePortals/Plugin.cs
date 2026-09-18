@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "Immersive Portals";
-        public const string VERSION = "0.9.35";
+        public const string VERSION = "0.9.36";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -304,6 +304,7 @@ namespace LivePortals
         private void Update()
         {
             if (!Enabled.Value) return;
+            HoldTeleportForCapture();
             var player = Player.m_localPlayer;
             if (player == null || GameCamera.instance == null) return;
             if (TuneKeys.Value && player.TakeInput() && !Hud.InRadial()) UpdateTuneKeys(player);
@@ -542,6 +543,23 @@ namespace LivePortals
 
         /// <summary>The capture of each portal still rendering or being stored. A newer one of the same portal renders at once and only its storing waits.</summary>
         private static readonly Dictionary<ZDOID, CaptureRun> _running = new Dictionary<ZDOID, CaptureRun>();
+        private static CaptureRun _departing;
+
+        /// <summary>
+        /// The game moves you two seconds after you step in and unloads the place behind you. On a distant teleport
+        /// it is already loading the far zones during those two seconds, at a few frames a second, and a departure
+        /// capture rendering a face per frame did not make it ("the portal went away during the capture"). While one
+        /// is still rendering, the teleport timer is held short of the mark: in ordinary play that changes nothing,
+        /// on a crawling teleport it adds a fraction of a second under the loading screen.
+        /// </summary>
+        private static void HoldTeleportForCapture()
+        {
+            if (_departing == null) return;
+            if (_departing.RenderedAll || _departing.Error != null || _departing.Done) { _departing = null; return; }
+            var p = Player.m_localPlayer;
+            if (p == null || !p.m_teleporting) return;
+            if (p.m_teleportTimer > 1.5f) p.m_teleportTimer = 1.5f;
+        }
 
         /// <summary>
         /// Capture the portal: a few faces rendered per frame, the pixels read back without waiting for the GPU,
@@ -562,7 +580,8 @@ namespace LivePortals
             CaptureRun run = null;
             for (int attempt = 0; attempt < 2; attempt++)
             {
-                run = new CaptureRun(portal, id) { StoreAfter = previous };
+                run = new CaptureRun(portal, id) { StoreAfter = previous, Departure = why == "departure" };
+                if (run.Departure) _departing = run;
                 _running[id] = run;
                 try { run.Prepare(); }
                 catch (Exception e) { Log.LogWarning("LivePortals: capture failed: " + e); run.Abort(); }
