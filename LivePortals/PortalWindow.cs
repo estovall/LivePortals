@@ -26,6 +26,7 @@ namespace LivePortals
             public readonly List<Renderer> Under = new List<Renderer>();     // skirts, drawn first
             public readonly List<Material> Materials = new List<Material>();
             public readonly List<Material> Untinted = new List<Material>(); // the local-light layers: never tinted
+            public int Glow;                                                 // how many of them
             public readonly List<Texture> Textures = new List<Texture>(); // blurred copies, ours to destroy
         }
 
@@ -67,6 +68,9 @@ namespace LivePortals
         private Camera _cam;
         private RenderTexture _rt;
         private Light _light;
+        private GameObject _fireHolder;                                       // stands for the far ring's frame; see FireSet
+        private readonly List<ParticleSystemRenderer> _fire = new List<ParticleSystemRenderer>();
+        private Color _tint = Color.white;
 
         private bool _built, _visible, _suppressed;
         private int _frame;
@@ -293,7 +297,14 @@ namespace LivePortals
                 rl.Anchor.transform.SetPositionAndRotation(anchor0 + rB * ((rl.Offset + CaptureForward) * ds), rB);
                 rl.Anchor.transform.localScale = Vector3.one * s;
             }
+            if (_fireHolder != null) _fireHolder.transform.SetPositionAndRotation(anchor0, rB);
             _cam.transform.SetPositionAndRotation(pe, map * Quaternion.LookRotation(vn, vu));
+            // The clip planes as well as the matrix: shaders that read the depth buffer (soft particles: every flame
+            // in the game fades out where it nears the surface behind it) turn depth into distance with the
+            // camera's own near and far, not with the matrix. With the near plane really on the pane, metres
+            // away, and the camera still saying 0.3, the flames of 0.9.21 took everything behind them to be in
+            // front of them and faded to nothing ("put behind a lot of the layers").
+            _cam.nearClipPlane = near;
             _cam.projectionMatrix = Matrix4x4.Frustum(l, r, b, t, near, far);
             if (glass && Time.time - _lastGlassLog > 1f)
             {
@@ -332,10 +343,11 @@ namespace LivePortals
             {
                 _tintTimer = 0.25f;
                 var primary = _set.Primary;
-                Color tint = Lighting.Tint(primary, Plugin.ToneMatch.Value);
+                Color tint = Lighting.Tint(primary, Plugin.ToneMatch.Value, _reliefs.Count > 0 && _reliefs[0].Glow > 0);
+                _tint = tint;
                 foreach (var rl in _reliefs)
                     foreach (var m in rl.Materials) WindowMaterial.SetTint(m, tint);
-                UpdateLight(primary, c, realFront ? n : -n, tint, alpha);
+                UpdateLight(primary, c, realFront ? n : -n, tint, alpha, realFront);
             }
 
             _visible = true;
@@ -380,10 +392,13 @@ namespace LivePortals
                 _cam.clearFlags = CameraClearFlags.Depth;
                 _cam.cullingMask = 1 << Plugin.FaceLayer;
                 SetReliefsEnabled(false, true);
+                // The far side's flames, live: particles, drawn after the reliefs and hidden by whatever of them is nearer.
+                foreach (var fr in _fire) if (fr != null) fr.enabled = true;
                 _cam.Render();
             }
             finally
             {
+                foreach (var fr in _fire) if (fr != null) fr.enabled = false;
                 SetReliefsEnabled(false, false);
                 SetReliefsEnabled(true, false);
                 _cam.clearFlags = clear;
@@ -400,8 +415,26 @@ namespace LivePortals
                 SaveWindow("final");
                 // The eye in the primary relief's own frame: what tools/LayerTest needs (EYES=x,y,z) to redraw this view.
                 Vector3 eyeLocal = Quaternion.Inverse(rB) * (pe - (anchor0 + rB * CaptureForward));
-                Plugin.Log.LogInfo($"LivePortals dump: window {Storage.Key(_nview.GetZDO().m_uid)} shows {Storage.Key(target)} ({_reliefs.Count} viewpoints), glass {glass}, front {realFront}, EYES={eyeLocal.x:0.###},{eyeLocal.y:0.###},{eyeLocal.z:0.###} near {near:0.###} far {far:0} frustum l {l:0.####} r {r:0.####} b {b:0.####} t {t:0.####} hdr {_cam.allowHDR} path {_cam.actualRenderingPath} depthBits {_rt.depth} format {_rt.format} material {WindowMaterial.Summary} pane {(_paneSolid ? "plug+sprite" : "sprite")} tint {Lighting.Tint(_set.Primary, Plugin.ToneMatch.Value)}");
+                Plugin.Log.LogInfo($"LivePortals dump: window {Storage.Key(_nview.GetZDO().m_uid)} shows {Storage.Key(target)} ({_reliefs.Count} viewpoints), glass {glass}, front {realFront}, EYES={eyeLocal.x:0.###},{eyeLocal.y:0.###},{eyeLocal.z:0.###} near {near:0.###} far {far:0} frustum l {l:0.####} r {r:0.####} b {b:0.####} t {t:0.####} hdr {_cam.allowHDR} path {_cam.actualRenderingPath} depthBits {_rt.depth} format {_rt.format} material {WindowMaterial.Summary} pane {(_paneSolid ? "plug+sprite" : "sprite")} tint {_tint} (captured under sun {_set.Primary.Sun} ambient {_set.Primary.Ambient}, picture luminance {_set.Primary.AverageLuminance:0.000} of which local light {_set.Primary.AverageLocalLuminance:0.000}), local-light layers {(_reliefs.Count > 0 ? _reliefs[0].Glow : 0)} (additive shader {(WindowMaterial.AdditiveWorks ? "found" : "NOT found")}), live flame renderers {_fire.Count}{FireReport(pe)}");
             }
+        }
+
+        /// <summary>For the dump line: are the flame copies alive, and where.</summary>
+        private string FireReport(Vector3 eye)
+        {
+            if (_fire.Count == 0) return "";
+            int particles = 0, playing = 0;
+            var sb = new System.Text.StringBuilder();
+            foreach (var fr in _fire)
+            {
+                if (fr == null) continue;
+                var ps = fr.GetComponent<ParticleSystem>();
+                if (ps == null) continue;
+                particles += ps.particleCount;
+                if (ps.isPlaying) playing++;
+                if (sb.Length < 300) sb.Append($" [{fr.name}: {ps.particleCount} particles, bounds centre {fr.bounds.center - eye} size {fr.bounds.size}, shader {(fr.sharedMaterial != null ? fr.sharedMaterial.shader.name : "none")}, active {fr.gameObject.activeInHierarchy}]");
+            }
+            return $" ({playing} playing, {particles} particles; relative to the eye:{sb})";
         }
 
         private void SaveWindow(string tag)
@@ -509,7 +542,9 @@ namespace LivePortals
                 // (0.9.2 to 0.9.4 used 5 mm per metre, which is five pixels: the far side moved in visible steps.)
                 float thr = Mathf.Max(0.003f, _eyeDist * (Rank == 0 ? 0.0007f : 0.002f));
                 bool moved = float.IsNaN(_lastEye.x) || (pe - _lastEye).sqrMagnitude > thr * thr || Mathf.Abs(alpha - _lastAlpha) > 0.002f;
-                if (!moved && since < 0.5f) { _skips++; return false; }
+                // Flames move on their own: a still eye gets thirty pictures a second of them, up close.
+                float stillFor = _fire.Count > 0 && _eyeDist < 25f ? 1f / 30f : 0.5f;
+                if (!moved && since < stillFor) { _skips++; return false; }
             }
             // Cadence: the nearest window follows the eye every frame (a redraw is about 2 ms); the others thirty
             // times a second, taking turns for the rest of the frame's budget.
@@ -524,7 +559,7 @@ namespace LivePortals
             return true;
         }
 
-        private void UpdateLight(PortalCapture cap, Vector3 c, Vector3 outward, Color tint, float alpha)
+        private void UpdateLight(PortalCapture cap, Vector3 c, Vector3 outward, Color tint, float alpha, bool frontSide)
         {
             if (_light == null || cap == null) return;
             float strength = Plugin.PortalLight.Value;
@@ -542,6 +577,19 @@ namespace LivePortals
             float lum = Mathf.Max(0.05f, Lighting.Luminance(col));
             col = Color.Lerp(Color.white, col / lum, 0.6f);
             col.a = 1f;
+            // Fires by the far ring shine through it whatever the hour. The picture's average cannot say so: three
+            // torches are a few bright pixels in a dark frame (0.9.21: "this portal isnt emitting light even
+            // though theres 3 fires directly infront of it").
+            if (_set != null && _set.Fire != null)
+            {
+                float fire = strength * Mathf.Min(2.5f, 0.6f * _set.Fire.LightAtRing(frontSide, out Color fireCol)) * alpha;
+                if (fire > 0.001f)
+                {
+                    col = (col * intensity + fireCol * fire) / (intensity + fire);
+                    col.a = 1f;
+                    intensity += fire;
+                }
+            }
             _light.color = col;
             _light.intensity = intensity;
             _light.enabled = intensity > 0.02f && _visible && !_hiddenForCapture;
@@ -699,7 +747,10 @@ namespace LivePortals
                     // Torchlight, firelight and glowing things: added on top of the background, never tinted, so
                     // they do not fade with the sun the way the rest of the picture does at night.
                     if (k == 0 && cap.Locals[i] != null && WindowMaterial.AdditiveWorks)
+                    {
                         AddLayer(rl, f.transform, "Glow", back, WindowMaterial.MakeAdditive(cap.Locals[i]), false, rl.Untinted);
+                        rl.Glow++;
+                    }
                     // The guesses (skirts, shell) show a blurred copy of the picture: one row of texels stretched
                     // over a skirt reads as a fan of streaks, the same colours blurred read as haze.
                     // (0.8.6 to 0.8.10 used a blurred copy here. It bled the colours of near things into the fill and
@@ -723,6 +774,13 @@ namespace LivePortals
                 _reliefs.Add(rl);
             }
             _tintTimer = 0f;
+            if (_set.Fire != null && Plugin.LiveFire.Value)
+            {
+                _fireHolder = new GameObject("LivePortals_Fire");
+                int built = _set.Fire.Build(_fireHolder.transform, _fire);
+                _fireHolder.SetActive(_visible && !_hiddenForCapture);
+                Plugin.Log.LogInfo($"LivePortals: {built} of {_set.Fire.Items.Count} flame effects play in the window at {name} ({_fire.Count} particle renderers)");
+            }
         }
 
         /// <summary>The texture's fourth mip level as a texture of its own (a GPU copy; the source need not be readable).</summary>
@@ -779,6 +837,8 @@ namespace LivePortals
                 if (rl.Anchor != null) Destroy(rl.Anchor);
             }
             _reliefs.Clear();
+            _fire.Clear();
+            if (_fireHolder != null) { Destroy(_fireHolder); _fireHolder = null; }
         }
 
         private void ReleaseCapture()
@@ -820,6 +880,8 @@ namespace LivePortals
             if (_paneRenderer != null) _paneRenderer.enabled = on;
             if (_overlayRenderer != null) _overlayRenderer.enabled = on;
             if (_light != null && !on) _light.enabled = false;
+            // Out of sight the flames stop simulating altogether.
+            if (_fireHolder != null && _fireHolder.activeSelf != on) _fireHolder.SetActive(on);
         }
 
         private void Cleanup()

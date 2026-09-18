@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "Immersive Portals";
-        public const string VERSION = "0.9.20";
+        public const string VERSION = "0.9.21";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -68,6 +68,8 @@ namespace LivePortals
         internal static ConfigEntry<bool> CaptureFog;
         internal static ConfigEntry<bool> CaptureLocalLight;
         internal static ConfigEntry<bool> CaptureFlames;
+        internal static ConfigEntry<bool> LiveFire;
+        internal static ConfigEntry<int> LiveFireMax;
         internal static ConfigEntry<bool> CaptureFlameDepth;
         internal static ConfigEntry<float> FlameMaxSize;
         internal static ConfigEntry<float> GrassGap;
@@ -205,6 +207,11 @@ namespace LivePortals
                 "Also capture what torches, fires and glowing things alone contribute, and show that part untinted: torchlight in the window then stays as bright at night as by day, while sunlit parts still follow the time of day.");
             CaptureFlames = Config.Bind("4. Look", "CaptureFlames", true,
                 "Keep the flames of torches and fires in the capture (other particle effects, like smoke and weather, are left out).");
+            LiveFire = Config.Bind("4. Look", "LiveFire", true,
+                "Fires, torches, furnaces and cooking places somebody built are left out of the capture and the window plays the game's own flame effects at their places instead: real flames in the right spot from every angle, burning, bright at night. Needs a fresh capture of the portal. Off: small flames are painted into the picture (CaptureFlames).");
+            LiveFireMax = Config.Bind("5. Performance", "LiveFireMax", 32,
+                new ConfigDescription("Most flame effects one window plays (the nearest to the far portal are kept).",
+                    new AcceptableValueRange<int>(0, 200)));
             FlameMaxSize = Config.Bind("4. Look", "FlameMaxSize", 1f,
                 new ConfigDescription("Largest flame effect kept in the capture, metres across. Torch flames are well under a metre; a hearth or bonfire is bigger and, painted onto the wall behind it, comes out as stretched copies, so it is left out (its light stays).",
                     new AcceptableValueRange<float>(0.2f, 5f)));
@@ -493,7 +500,7 @@ namespace LivePortals
             if (run.Error != null) { Log.LogWarning("LivePortals: could not capture: " + run.Error); yield break; }
             PortalWindow.NotifyCaptureUpdated(id);
             var p0 = run.Points[0];
-            Log.LogInfo($"LivePortals: {why} capture at portal {Storage.Key(id)}: {run.Points.Count} points, {p0.Res}px faces, grid {p0.Res / p0.Step}, {run.FrontFaces} faces with foreground, {run.GrassCount} grass instances, forward face {p0.SkyFraction * 100f:0}% sky ({p0.DiffFraction * 100f:0}% by colour) with median depth {p0.MedianDepth:0.0} m; rendered over {run.RenderFrames} frames ({run.RenderMs:0} ms of them), layered and stored in {run.WorkSeconds:0.0} s.");
+            Log.LogInfo($"LivePortals: {why} capture at portal {Storage.Key(id)}: {run.Points.Count} points, {p0.Res}px faces, grid {p0.Res / p0.Step}, {run.FrontFaces} faces with foreground, {run.GrassCount} grass instances, {run.FireCount} live flame effects, forward face {p0.SkyFraction * 100f:0}% sky ({p0.DiffFraction * 100f:0}% by colour) with median depth {p0.MedianDepth:0.0} m; rendered over {run.RenderFrames} frames ({run.RenderMs:0} ms of them), layered and stored in {run.WorkSeconds:0.0} s.");
         }
     }
 

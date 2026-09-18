@@ -31,6 +31,7 @@ namespace LivePortals
         private string _error;
         private CaptureSet _set;
         private GrassSet _grass;
+        private FireSet _fire;
         private readonly List<Action> _items = new List<Action>();
         private int _next;
         private static int _budgetFrame = -1;
@@ -71,6 +72,7 @@ namespace LivePortals
                 if (meta.TryGetValue("takenAt", out var ta)) long.TryParse(ta, NumberStyles.Integer, CultureInfo.InvariantCulture, out set.TakenAt);
                 int to = Mathf.Min(points, Mathf.Max(FromPoint + 1, _maxPoints));
                 if (FromPoint == 0) _grass = GrassSet.Read(Storage.GrassPath(_dir, _key));
+                if (FromPoint == 0 && Plugin.LiveFire.Value) _fire = FireSet.Read(Storage.FirePath(_dir, _key));
                 for (int p = FromPoint; p < to && !_cancelled; p++)
                 {
                     var cap = new PortalCapture { TakenAt = set.TakenAt };
@@ -115,6 +117,7 @@ namespace LivePortals
                     }
                 }
                 if (_grass != null) _items.Add(() => { _grass.Resolve(); set.Grass = _grass; });
+                set.Fire = _fire;
                 _set = set;
             }
             catch (Exception e) { _error = e.Message; }

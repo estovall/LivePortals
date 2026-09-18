@@ -1,29 +1,28 @@
 # Pick-up notes for LivePortals
 
-Last updated 2026-09-17 (afternoon Central) on Max's second PC, right before switching computers again. `main` is the
-current dev state, **0.9.0**. Not published to Hexium. Max tests each build and reports with screenshots; on the
-second PC the mod runs from the game folder's own `BepInEx\plugins` (world "sails"), on the home PC from the Gale
-"Flotilla" profile.
+Last updated 2026-09-18 on Max's second PC. `main` is the current dev state, **0.9.21**. Published on Hexium as
+`Max/Immersive_Portals` (0.9.20 is the latest there). Max tests each build and reports with screenshots; on the second
+PC the mod runs from the game folder's own `BepInEx\plugins` (world "sails"), on the home PC from Gale as a Hexium
+package. Captures live in `AppData\LocalLow\IronGate\Valheim\LivePortals\<world>`.
 
 ## State at hand-over (read this first)
 
-- **Confirmed in game:** per-pixel GPU depth (`ZBuffer, reversed Z`); sky detection; fog + Amplify Occlusion in captures;
-  the relief material chosen by self-test (`Custom/Creature (emissive)`) which fixed every "background in front of the
-  foreground" report; the front view into a building; the back view through beams; correct colours with the 8-bit
-  window texture; the stone portal's measured pane (now x1.125); the dissolve-in exists and Max likes the idea.
-- **Built but not yet seen in game:** 0.9.0 live grass (`GrassSet`: grass left out of captures, its instances recorded
-  and drawn as real geometry in the window); 0.8.16 dissolve from the rim inward starting at 8x range; 0.8.12 solid,
-  depth-writing pane (the fix for foggy weather wiping the window out); 0.8.13 skirt walls only between surfaces nearer
-  than 25 m, far shell all around.
-- **Open:** the sky through a window is pinker than the real sky (item 16/18: a half-float window texture made the
-  whole window dark orange in game, reason unknown, reverted); a wall very close behind a portal is sampled at grazing
-  angles and stays soft; captures freeze the game for 0.7 to 1.0 s (4 viewpoints, 21 faces, 4 renders each).
-- **How to work on this without the game:** `tools/LayerTest` (see below) redraws Max's stored captures and his
-  numpad-5 dumps offline. Ask for a numpad-5 dump plus a screenshot instead of guessing: the dump is what the window
-  holds, the screenshot is what reaches the screen, and twice the difference between the two was the whole story.
-- The test history below (items 1 to 24) is long but every item names what was tried and why it failed; several
-  obvious ideas are in there as dead ends (grass as cards, grass painted on the ground, blurred fill, float window
-  texture, `Particles/Standard Unlit`).
+- **Confirmed in game:** per-pixel GPU depth; sky detection; fog + Amplify Occlusion in captures; the relief material
+  chosen by self-test (`Custom/Creature (emissive)`, deferred path only: forward renders it black); colours with the
+  8-bit window texture; the stone portal's pane; performance after 0.9.4 ("much better"); captures spread over frames;
+  the pane as black depth plug + sprite at renderQueue 2450 (Mistlands mist covers it); 0.9.21 live fire and the
+  fire-aware portal light (items 44, 45).
+- **Built but not yet seen in game:** the blocky dissolve of 0.9.16; the swirl
+  drawn over the picture (0.9.17); the 0.9.5 pre-cull refresh (the "tiny delay").
+- **Open:** night: Max (2026-09-18, on 0.9.20): "when its night the portal images look extremely dark even if the
+  other side of the portal is a well lit room". Cause NOT established (item 44 lists the candidates and what the
+  numpad-5 line now logs to tell them apart). Older: the sky through a window is pinker than the real sky; a wall
+  very close behind a portal stays soft.
+- **How to work on this without the game:** `tools/LayerTest` redraws stored captures and numpad-5 dumps offline. Ask
+  for a numpad-5 dump plus a screenshot instead of guessing: the dump is what the window holds, the screenshot is
+  what reaches the screen. Item 38's lesson: do not stack untested changes on each other.
+- Dead ends, each tried and documented below: grass as cards, grass painted on the ground, blurred fill, float window
+  texture, `Particles/Standard Unlit`, the forward rendering path, flames with a depth of their own (three rounds).
 
 ## What the mod is (decided with Max)
 
@@ -392,6 +391,49 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     (1 m): torches yes, hearths no (light stays). Published to Hexium as Max/Immersive_Portals 0.9.20 and
     installed into Gale as a Hexium package (profile mods JSON in data.sqlite3 + Max-Immersive_Portals folder),
     replacing the hand-placed Max-LivePortals folder, so the profile can be shared.
+44. 0.9.21 (2026-09-18, second PC). Max: "lets start with fire", and night windows "extremely dark even if the other
+    side is a well lit room". **Fire**: the same move as grass. `Fire.cs` / `FireSet`: `HideForCapture` hides (as
+    before) and lists every particle renderer within 40 m whose ZNetView root has a `Fireplace`, `Smelter` or
+    `CookingStation` (`FireSet.Qualifies`); `Record` keeps, per topmost particle system under that root, the prefab
+    name, the child-index path, the pose in the far ring's frame and the activeSelf flags of its objects
+    (`<key>_fire.bin`, magic "LPFR"). `Build` instantiates that child of the prefab from `ZNetScene` under a
+    switched-off stash (so no script ever wakes), strips everything but ParticleSystem(+Renderer), sets simulation
+    space Local (the far ring's frame moves with the eye, world-space particles would trail), AlwaysSimulate,
+    prewarm, layer FaceLayer, renderers off. `PortalWindow`: `_fireHolder` is posed at (anchor0, rB) like the grass,
+    the renderers are enabled only around pass two of `RenderNow` (they are transparent, so they draw after the
+    reliefs and are depth-tested against them), the holder is inactive while the window is hidden, and a still eye
+    within 25 m gets 30 redraws a second when there are flames. Flames that do not qualify (locations) are still
+    painted in when small (`CaptureFlames`). The flame-depth code is still there, off. **Untested**: watch for
+    (a) the capture log line's "N live flame effects", (b) the log line "x of y flame effects play in the window",
+    (c) flames visible in the main view at the mapped place (would mean a renderer stayed enabled), (d) flames
+    trailing when the viewer moves, (e) soft-particle shaders against the window camera's depth.
+    **Night**: not diagnosed, no log from the home PC here. Candidates: (1) no local-light layer (the additive
+    self-test failed, or captures older than 0.9.8), so the whole picture takes the night tint of about 0.1;
+    (2) the queue-2450 sprite is darkened by an opaque-stage effect as the emissive pane was in 0.9.9 (then item 41
+    applies: back to 2950 and accept the mist); (3) the local-light pass renders black. The numpad-5 log line now
+    carries the tint, the capture's sun/ambient, picture and local luminance, the number of local-light layers,
+    whether an additive shader was found, and the live flame count: a dump that is bright while the screen is dark
+    means (2), a dark dump with 0 layers means (1), a dark dump with layers and local luminance near 0 means (3).
+    Meanwhile `Lighting.Tint(cap, strength, hasGlow)` holds the darkening back by avgLocal/avgLum when a window has
+    no local-light layer.
+45. 0.9.21 in game (2026-09-18, second PC, first build of it). Log: captures record the fires ("3 live flame
+    effects" right after Max placed a `fire_pit`), windows report "3 of 3 flame effects play", additive shader found,
+    6 local-light layers per window. His night screenshot of a torch-lit camp through a portal is bright and right:
+    **the night darkness he reported on 0.9.20 did not show here** (it may be captures from before the local-light
+    layer on the home PC; ask for a dump there if it comes back). Max: the campfire "looks like its lit up, but
+    the actual campfire has no flames", then "the flames are being put behind alot of the layers". Cause: the
+    window camera's `nearClipPlane` was 0.05 while its projection matrix has the near plane on the pane (metres);
+    `_ZBufferParams` follows the property, not the matrix, so soft particles (every flame shader) linearised the
+    depth buffer wrongly and faded out. `Refresh` now sets `_cam.nearClipPlane = near` before the matrix. (Tried
+    and dropped within the hour: `forceRenderingOff` instead of the enabled toggle; the toggle does draw.)
+    Max: "this portal isnt emitting light even though theres 3 fires directly infront of it": the spill light
+    came from the face-0 averages only (there about 0.10 against here about 0.08). `FireSet.Sources` now records
+    the strongest lamp under each fire's root (position in the ring's frame, colour, intensity, range; appended
+    to `_fire.bin`, older files simply have none) and `UpdateLight` adds `0.6 * LightAtRing` (capped 2.5) for the
+    fires on the side being shown. The dump line's `FireReport` lists particle counts, bounds and shaders of the
+    flame copies. A later "0 live flame effects" at the same portal was right: the fire had burnt out.
+    **Confirmed by Max on the second build** (screenshot + "both look right"): torch flames in place from every angle,
+    the portal lights the floor in front of it. Log: 3 torches = 3 effects, 6 particle renderers, 81 particles alive.
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

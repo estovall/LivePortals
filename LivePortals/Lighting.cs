@@ -28,11 +28,17 @@ namespace LivePortals
         /// Tint that turns a capture taken under (sun0, amb0, fog0) into roughly what the same scene looks like now.
         /// Brightness follows the light level ratio; hue follows the colour of that light, which tracks dawn/dusk/night.
         /// </summary>
-        internal static Color Tint(PortalCapture cap, float strength)
+        internal static Color Tint(PortalCapture cap, float strength, bool hasGlow = true)
         {
             Sample(out var sun, out var amb, out _, out _);
             float ratio = Level(sun, amb) / Level(cap.Sun, cap.Ambient);
             ratio = Mathf.Clamp(ratio, 0.04f, 4f);
+            // Without the local-light layer (no additive shader passed the self-test, or a capture from before
+            // 0.9.8) nothing puts the torchlight back after the darkening, and a torch-lit room seen at night is
+            // as black as the hillside. Then hold back the darkening by the share of the picture's light that
+            // was torchlight: one number for the whole picture, but a lit room stays lit.
+            if (!hasGlow && ratio < 1f && cap.AverageLuminance > 0.001f)
+                ratio = Mathf.Lerp(ratio, 1f, Mathf.Clamp01(cap.AverageLocalLuminance / cap.AverageLuminance));
             // Hue from the light that falls on the scene (sun and ambient), then and now. Not from the fog colour:
             // that belongs to the biome the viewer stands in, and turned a forest seen from the plains orange.
             Color chroma = Color.white;

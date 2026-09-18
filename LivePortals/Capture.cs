@@ -66,6 +66,7 @@ namespace LivePortals
         public readonly List<PortalCapture> Captures = new List<PortalCapture>();
         public readonly List<Vector3> Offsets = new List<Vector3>();
         public GrassSet Grass;
+        public FireSet Fire;
         public long TakenAt;
         /// <summary>How many viewpoints the stored capture has; Captures may hold fewer (far windows load only the primary).</summary>
         public int AvailablePoints;
@@ -935,6 +936,7 @@ namespace LivePortals
             public readonly List<Light> Lights = new List<Light>();
             public readonly List<Collider> Colliders = new List<Collider>();
             public readonly List<ParticleSystemRenderer> Flames = new List<ParticleSystemRenderer>(); // kept visible; see MakeProxies
+            public readonly List<ParticleSystemRenderer> Fire = new List<ParticleSystemRenderer>();   // hidden, and played live by the window; see FireSet
 
             public void Hide()
             {
@@ -1003,7 +1005,11 @@ namespace LivePortals
             foreach (var ps in Object.FindObjectsByType<ParticleSystemRenderer>(FindObjectsSortMode.None))
             {
                 if (!ps.enabled || (portal != null && Vector3.Distance(ps.transform.position, at) > 150f)) continue;
-                if (Plugin.CaptureFlames.Value && IsFlame(ps)) { h.Flames.Add(ps); continue; }
+                if (ps.gameObject.layer == Plugin.FaceLayer) continue; // a window's own flame copies: never drawn for any camera but the window's
+                // Fires somebody built are left out and played live in the window (FireSet). Only flames that cannot
+                // be (part of a location, say) are still painted into the picture, and only small ones.
+                if (Plugin.LiveFire.Value && portal != null && FireSet.Qualifies(ps, at)) h.Fire.Add(ps);
+                else if (Plugin.CaptureFlames.Value && IsFlame(ps)) { h.Flames.Add(ps); continue; }
                 ps.enabled = false;
                 hidden.Add(ps);
             }

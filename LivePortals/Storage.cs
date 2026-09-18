@@ -77,6 +77,15 @@ namespace LivePortals
         internal static string MetaPath(string dir, string key) => Path.Combine(dir, key + ".txt");
         internal static string GrassPath(string dir, string key) => Path.Combine(dir, key + "_grass.bin");
 
+        internal static string FirePath(string dir, string key) => Path.Combine(dir, key + "_fire.bin");
+
+        internal static void SaveFire(Job job, FireSet fire)
+        {
+            string path = FirePath(job.Dir, job.Key);
+            if (fire != null && fire.Items.Count > 0) fire.Save(path);
+            else if (File.Exists(path)) File.Delete(path);
+        }
+
         internal static void SaveGrass(Job job, GrassSet grass)
         {
             string path = GrassPath(job.Dir, job.Key);

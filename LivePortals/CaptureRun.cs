@@ -21,6 +21,7 @@ namespace LivePortals
         private Capture.Hidden _hidden;
         private Storage.Job _job;
         private GrassSet _grass;
+        private FireSet _fire;
         private float _far, _exposure, _waterLevel;
         private readonly List<RawPoint> _points = new List<RawPoint>();
         private readonly List<FaceRaw> _faces = new List<FaceRaw>(); // in render order
@@ -39,6 +40,7 @@ namespace LivePortals
         public long TakenAt;
         public List<RawPoint> Points => _points;
         public int GrassCount => _grass != null ? _grass.Count : 0;
+        public int FireCount => _fire != null ? _fire.Items.Count : 0;
 
         internal CaptureRun(TeleportWorld portal, ZDOID id)
         {
@@ -86,6 +88,7 @@ namespace LivePortals
                     }
                 }
                 _grass = GrassSet.Record(centre, rot);
+                if (Plugin.LiveFire.Value) _fire = FireSet.Record(centre, rot, _hidden.Fire);
             }
             finally { _hidden.Show(); }
             _job = Storage.Begin(_id);
@@ -199,6 +202,7 @@ namespace LivePortals
                 if (_abort) return;
                 for (int k = 0; k < _points.Count; k++) Storage.SavePoint(_job, k, _points[k], grids[k]);
                 Storage.SaveGrass(_job, _grass);
+                Storage.SaveFire(_job, _fire);
                 Storage.Finish(_job, _points.Count, TakenAt);
             }
             catch (Exception e) { if (Error == null) Error = e.ToString(); }

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.21
+
+- Fire is no longer part of the captured picture. The flames of fires, torches, sconces, braziers, furnaces and cooking places that somebody built are left out of the capture; the capture notes where each one stands, and the window plays the game's own flame effects at those places behind the pane. Real flames: in the right spot from every angle, hidden by the pillar in front of them, burning, and as bright at night as a flame is. `LiveFire` (on), `LiveFireMax` (32). Needs a fresh capture of each portal; older captures look as before.
+- The window camera now reports its real near plane (the pane) to shaders. Flames fade out where they near the surface behind them, measured in the depth buffer; with the wrong near plane they took everything to be in front of them and faded to nothing.
+- The light a portal throws on your side now counts the fires standing by the far ring (their own lamps, recorded with the capture), not only the picture's average brightness, which three torches in a dark frame barely move.
+- Night: when a window has no torchlight layer (no additive shader passed the start-up test, or an older capture), the night darkening is held back by the share of the picture that was torchlight, so a lit room stays lit. The numpad 5 log line now says how dark the tint is and whether the torchlight layer is there.
+
 ## 0.9.20
 
 - Big open fires (hearths, bonfires) are no longer painted into the capture: they sit metres from the wall behind them and came out as stretched copies. Their light is still captured. Torch and sconce flames stay. `FlameMaxSize` (1 m) sets the limit. Rooms with a hearth need a recapture.

@@ -63,6 +63,7 @@ of faces per frame and finished on a background thread, so a trip does not stall
 | `LiveSky` | on | Draw the current sky behind the capture |
 | `ToneMatch` | 1 | How strongly captures follow the current lighting (0 = as captured) |
 | `CaptureFog` | on | Capture with the game's own distance fog and ambient occlusion |
+| `LiveFire` / `LiveFireMax` | on / 32 | Fires and torches somebody built are left out of the capture and the window plays the game's own flame effects in their places (needs a fresh capture) |
 | `CaptureLocalLight` / `CaptureFlames` | on / on | Keep torchlight and firelight untinted at night (a second capture per face with the sun off); keep the flames of torches and fires in the capture |
 | `GrassGap` | 0.75 m | Grass this close to the far portal's centre is not drawn in the window |
 | `CaptureExposure` | 1 | Brightness of captures |
