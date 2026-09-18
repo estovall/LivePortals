@@ -602,6 +602,12 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     captured under sun 0.002 (moonless), now under a moon: the sun ratio exploded and the dark 8-bit picture was
     scaled x4 into green blocks. `Lighting.MaxBrighten` = 1.5 caps every ratio (SplitTint, SkyChannel, Mix and
     the old Tint); the sun ratio's floor is 0.05. **Untested.**
+60. 0.9.28 testing: sheen still there on 0.9.27 (KAE&ALBA window, greenish soft blob). Not specular: the
+    `RenderBloom` pass (0.9.22) ran after `Grass.Draw` had queued the grass for `_cam` (DrawMeshInstanced is
+    drawn by every render of that camera in the frame) with the reliefs on under a black tint, so grass and
+    whatever the tint missed were blurred over the pane through the additive bloom quad. Now RenderBloom runs
+    first in RenderNow, before the grass queue, with all relief renderers off and cullingMask FaceLayer; the
+    black-tint trick is gone. Cost: a flame behind a pillar glows through it a little. **Untested.**
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.28 (TESTING: on the `testing` branch only, not published)
+
+- The glossy sheen is gone for real. It was the flame glow pass: meant to blur only the far side's flames over the pane, it also caught the far side's grass and the reliefs, so a blurred copy of the picture lay over it. The pass now runs with everything but the flames switched off, before the grass is queued.
+
 ## 0.9.27 (TESTING: on the `testing` branch only, not published)
 
 - A window no longer blows out into blocks. A capture taken in near darkness and seen later under a moon was brightened up to four times; an 8-bit night picture has nothing to brighten and came out as green blocks. Any tint now brightens by at most 1.5; dimming is unchanged.

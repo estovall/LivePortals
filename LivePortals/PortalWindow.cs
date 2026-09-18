@@ -453,17 +453,18 @@ namespace LivePortals
             if (!want) { _bloomShown = false; return; }
             // The glow is a blur of something that flickers: every other redraw is plenty, and it is a whole camera pass.
             if (_bloomShown && (_bloomTick++ & 1) == 1) return;
-            var target = _cam.targetTexture; Color bg = _cam.backgroundColor;
+            // Only the flames: every relief renderer is off (the caller runs this before the passes and before the
+            // grass is queued for the camera), the sky layer is masked out, the clear is black. Up to 0.9.27 the
+            // reliefs stayed on with a black tint and the pass ran after the grass had been queued, so the far
+            // side's grass and whatever the tint did not cover came through as a blurred glow over the whole
+            // picture: the "glossy sheen". The price: a flame hidden by a pillar still glows through it a little.
+            var target = _cam.targetTexture; Color bg = _cam.backgroundColor; var clear = _cam.clearFlags; int mask = _cam.cullingMask;
             try
             {
-                foreach (var rl in _reliefs)
-                {
-                    foreach (var m in rl.Materials) WindowMaterial.SetTint(m, Color.black);
-                    foreach (var ar in rl.Additive) ar.enabled = false;
-                }
                 _cam.targetTexture = _bloomRt;
                 _cam.clearFlags = CameraClearFlags.SolidColor;
                 _cam.backgroundColor = Color.black;
+                _cam.cullingMask = 1 << Plugin.FaceLayer;
                 _cam.Render();
                 _bloomShown = true;
             }
@@ -471,7 +472,8 @@ namespace LivePortals
             {
                 _cam.targetTexture = target;
                 _cam.backgroundColor = bg;
-                PushTints();
+                _cam.clearFlags = clear;
+                _cam.cullingMask = mask;
             }
         }
 
@@ -506,6 +508,10 @@ namespace LivePortals
                 // The grass is only drawn from near by (far off it is smaller than a pixel of the window and thousands
                 // of instances). It grows out of the ground over the last eight metres of the approach; switched
                 // on at one distance it popped in, and out again with every step back.
+                // The flame glow first, while nothing but the flames is switched on and no grass is queued yet.
+                foreach (var fr in _fire) if (fr != null) fr.enabled = true;
+                RenderBloom();
+                foreach (var fr in _fire) if (fr != null) fr.enabled = false;
                 float grassFrom = Plugin.SecondaryViewpointRange.Value + 12f;
                 if (_eyeDist <= grassFrom)
                     _set.Grass?.Draw(_cam, Matrix4x4.TRS(anchor0, rB, Vector3.one), _set.Primary.GrassGain, Mathf.Clamp01((grassFrom - _eyeDist) / 8f));
@@ -518,7 +524,6 @@ namespace LivePortals
                 // The far side's flames, live: particles, drawn after the reliefs and hidden by whatever of them is nearer.
                 foreach (var fr in _fire) if (fr != null) fr.enabled = true;
                 _cam.Render();
-                RenderBloom();
             }
             finally
             {
