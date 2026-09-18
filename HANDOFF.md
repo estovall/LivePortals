@@ -639,6 +639,11 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     `Spawn` = dedicated BelowNormal threads, `CaptureThreads` (3) gates both layering and encoding,
     `CaptureFacesPerFrame` 1 (ConfigVersion 5 migrates a stored 2). If it still stutters, next suspects are the
     collector (Layers.Process allocations) and the memory loader's uploads (FrameBudgetMs 4). **Untested.**
+66. 0.9.34 testing: Max's night screenshot (KAE&ALBA) on 0.9.32: a soft green glow beside the torch in the
+    window; his numpad-5 dumps of the same moment show clean window textures, so it is added over the picture:
+    the bloom quad (FlameBloom 4). Set FlameBloom = 0 in his config for the next launch as the test; numpad 5 now
+    also saves the bloom RT (`SaveTexture`, tag "bloom"). If the green goes with FlameBloom 0, the bloom pass
+    still catches something green (grass queued for `_cam`? the fire prefab's own glow?): read the bloom dump.
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

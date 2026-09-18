@@ -555,6 +555,8 @@ namespace LivePortals
             {
                 _dumped = DumpRequest;
                 SaveWindow("final");
+                // The flame glow layer as it is added over the picture: what the bloom pass really caught.
+                if (_bloomRt != null && _bloomShown) SaveTexture(_bloomRt, "bloom");
                 // The eye in the primary relief's own frame: what tools/LayerTest needs (EYES=x,y,z) to redraw this view.
                 Vector3 eyeLocal = Quaternion.Inverse(rB) * (pe - (anchor0 + rB * CaptureForward));
                 Plugin.Log.LogInfo($"LivePortals dump: window {Storage.Key(_nview.GetZDO().m_uid)} shows {Storage.Key(target)} ({_reliefs.Count} viewpoints), glass {glass}, front {realFront}, EYES={eyeLocal.x:0.###},{eyeLocal.y:0.###},{eyeLocal.z:0.###} near {near:0.###} far {far:0} frustum l {l:0.####} r {r:0.####} b {b:0.####} t {t:0.####} hdr {_cam.allowHDR} path {_cam.actualRenderingPath} depthBits {_rt.depth} format {_rt.format} material {WindowMaterial.Summary} pane {(_paneSolid ? "plug+sprite" : "sprite")} tint {_tint}, sky-light layers {(_reliefs.Count > 0 ? _reliefs[0].Sky.Count : 0)} (sun tint {_sunTint}, sky gain {_skyGain}, sky-lit share {_set.Primary.AverageAmbientLuminance:0.000}) (captured under sun {_set.Primary.Sun} ambient {_set.Primary.Ambient}, picture luminance {_set.Primary.AverageLuminance:0.000} of which local light {_set.Primary.AverageLocalLuminance:0.000}), local-light layers {(_reliefs.Count > 0 ? _reliefs[0].Glow : 0)} (additive shader {(WindowMaterial.AdditiveWorks ? "found" : "NOT found")}), live flame renderers {_fire.Count}{FireReport(pe)}");
@@ -577,6 +579,26 @@ namespace LivePortals
                 if (sb.Length < 300) sb.Append($" [{fr.name}: {ps.particleCount} particles, bounds centre {fr.bounds.center - eye} size {fr.bounds.size}, shader {(fr.sharedMaterial != null ? fr.sharedMaterial.shader.name : "none")}, active {fr.gameObject.activeInHierarchy}]");
             }
             return $" ({playing} playing, {particles} particles; relative to the eye:{sb})";
+        }
+
+        private void SaveTexture(RenderTexture rt, string tag)
+        {
+            try
+            {
+                string dir = Storage.DebugDir();
+                Directory.CreateDirectory(dir);
+                var srgb = RenderTexture.GetTemporary(rt.width, rt.height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+                Graphics.Blit(rt, srgb);
+                var tex = new Texture2D(rt.width, rt.height, TextureFormat.RGBA32, false);
+                var prev = RenderTexture.active;
+                RenderTexture.active = srgb;
+                tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0, false);
+                RenderTexture.active = prev;
+                RenderTexture.ReleaseTemporary(srgb);
+                File.WriteAllBytes(Path.Combine(dir, $"{System.DateTime.Now:HHmmss}_{Storage.Key(_nview.GetZDO().m_uid)}_{tag}.png"), tex.EncodeToPNG());
+                Destroy(tex);
+            }
+            catch (System.Exception e) { Plugin.Log.LogWarning("LivePortals: dump of " + tag + " failed: " + e.Message); }
         }
 
         private void SaveWindow(string tag)
