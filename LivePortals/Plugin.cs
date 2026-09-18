@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "Immersive Portals";
-        public const string VERSION = "0.9.18";
+        public const string VERSION = "0.9.19";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -68,6 +68,7 @@ namespace LivePortals
         internal static ConfigEntry<bool> CaptureFog;
         internal static ConfigEntry<bool> CaptureLocalLight;
         internal static ConfigEntry<bool> CaptureFlames;
+        internal static ConfigEntry<bool> CaptureFlameDepth;
         internal static ConfigEntry<float> GrassGap;
         internal static ConfigEntry<float> PortalLight;
         internal static ConfigEntry<float> PortalLightRange;
@@ -203,6 +204,8 @@ namespace LivePortals
                 "Also capture what torches, fires and glowing things alone contribute, and show that part untinted: torchlight in the window then stays as bright at night as by day, while sunlit parts still follow the time of day.");
             CaptureFlames = Config.Bind("4. Look", "CaptureFlames", true,
                 "Keep the flames of torches and fires in the capture (other particle effects, like smoke and weather, are left out).");
+            CaptureFlameDepth = Config.Bind("4. Look", "CaptureFlameDepth", false,
+                "Experimental: give flames the depth of their fire so a hearth sits in the middle of its room instead of on the wall behind it. Off: flames are painted on whatever is behind them (right for wall torches, wrong for a fire in the open). On, it can leave dark blocks next to free-standing torches.");
             GrassGap = Config.Bind("4. Look", "GrassGap", 0.75f,
                 new ConfigDescription("Grass closer than this to the far portal's centre is not drawn in the window, metres (blades standing in the ring itself).",
                     new AcceptableValueRange<float>(0f, 10f)));

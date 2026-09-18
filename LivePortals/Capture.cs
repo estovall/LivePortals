@@ -443,6 +443,9 @@ namespace LivePortals
             }
         }
 
+        /// <summary>After a failed asynchronous read: plain reads for the rest of the session.</summary>
+        internal static void DisableAsync() { _asyncOk = false; }
+
         private static int Diff(Color32 a, Color32 b) => Mathf.Abs(a.r - b.r) + Mathf.Abs(a.g - b.g) + Mathf.Abs(a.b - b.b);
 
         /// <summary>

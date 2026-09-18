@@ -380,6 +380,13 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     G-buffer effects (the night darkening) miss it but the mist/fog composite covers it. If night goes dark again
     with this, the darkening effect is not G-buffer based and the queue has to go back to 2950 with the mist
     accepted. **Untested.**
+42. 0.9.19, Max on 0.9.18: mist now covers the window (so the queue-2450 sprite works, and night was not
+    reported dark), "rooms with torches are fully broken again": black blocks beside each free-standing torch,
+    textures on disk clean. Step 2b promoted the standing torches' flame cells to foreground; the fill under them
+    is dark and shows as blocks when the eye moves. `CaptureFlameDepth` (default false) now gates MakeProxies, so
+    the flame passes and step 2b are inert unless opted in. Work it out in tools/LayerTest before turning it back
+    on (needs FlameDepth support in the harness). Also: one "GPU could not hand back face" failure in the log;
+    `Capture.DisableAsync()` now drops to plain reads for the session after a failure.
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.19
+
+- Flame depth is off by default (`CaptureFlameDepth`). Free-standing torches were becoming near things of their own and leaving dark blocks beside them; flames are painted on whatever is behind them again, as in 0.9.8. The torchlight layer, flames and the swirl stay. Needs a recapture of rooms with torches.
+- If an asynchronous GPU read fails once, captures wait for the GPU for the rest of the session instead of failing again.
+
 ## 0.9.18
 
 - Mist covers the window. The Mistlands mist (and anything else the game composites from the depth buffer) is applied at the end of the opaque stage; the picture was drawn after it and stayed crisp through any amount of mist. It is now drawn at the end of the opaque stage itself, after the effects that darkened the old pane at night but before the mist.

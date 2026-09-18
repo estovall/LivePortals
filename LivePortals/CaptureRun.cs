@@ -62,7 +62,7 @@ namespace LivePortals
             _hidden = Capture.HideForCapture(_portal);
             try
             {
-                Capture.MakeProxies(_rig, _hidden);
+                if (Plugin.CaptureFlameDepth.Value) Capture.MakeProxies(_rig, _hidden);
                 Physics.SyncTransforms(); // so the rays and clearance checks do not hit the colliders just switched off
                 Vector3 forward = rot * Vector3.forward * 0.15f;
                 Capture.EnsureProbed(_rig, centre + rot * offsets[0] + forward, rot);
@@ -137,7 +137,7 @@ namespace LivePortals
             {
                 var f = _faces[_collected];
                 if (!f.Collect()) return true;
-                if (f.Error) { Fail("the GPU could not hand back face " + f.Face + " of viewpoint " + f.PointIndex); return false; }
+                if (f.Error) { Capture.DisableAsync(); Fail("the GPU could not hand back face " + f.Face + " of viewpoint " + f.PointIndex + "; captures will wait for the GPU from now on"); return false; }
                 _collected++;
                 if (_rig.Rays)
                 {
