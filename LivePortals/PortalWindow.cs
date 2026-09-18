@@ -55,6 +55,10 @@ namespace LivePortals
         private GameObject _overlay;
         private Renderer _overlayRenderer;
         private Material _overlayMat;
+        private Mesh _overlayMesh;
+        private int[] _overlayCells;
+        private Color32[] _overlayCols;
+        private float _overlayShown = -1f;
         // The game's own swirl in the ring: transparent, on the pane's plane. It is switched off while the window
         // shows, or at some angles the game draws it after the picture and the ring goes black.
         private readonly List<Renderer> _swirl = new List<Renderer>();
@@ -301,16 +305,20 @@ namespace LivePortals
             // only from behind. From the front, mirror the mesh (a negative x scale: the disc is symmetric, only
             // its UVs flip). Sprite shaders ignore texture scale/offset, so it has to be done on the geometry.
             _pane.transform.localScale = new Vector3(front ? -w : w, h, 1f);
-            // The picture fades in over the real scene; the plug behind it only dissolves in under the last part
-            // of the fade, when the picture already covers it. (0.9.10 to 0.9.13 dissolved the plug across the
-            // whole fade: blocky holes with a half-transparent picture over them.)
-            if (_paneSolid) WindowMaterial.SetPaneVisible(_paneMat, _overlay != null ? Mathf.Clamp01((alpha - 0.85f) / 0.15f) : alpha);
+            // The plug and the picture dissolve in as the same blocks (see Dissolve): the picture is cut per cell,
+            // never half transparent.
+            if (_paneSolid) WindowMaterial.SetPaneVisible(_paneMat, alpha);
             else _paneMat.color = new Color(1f, 1f, 1f, alpha);
             if (_overlay != null)
             {
                 // A little toward the viewer, so it never fights the plug for the same depth.
                 _overlay.transform.localPosition = new Vector3(0f, 0f, realFront ? 0.03f : -0.03f);
-                _overlayMat.color = new Color(1f, 1f, 1f, alpha);
+                float shown = Dissolve.Reveal(alpha);
+                if (Mathf.Abs(shown - _overlayShown) > 0.002f)
+                {
+                    _overlayShown = shown;
+                    Dissolve.Apply(_overlayMesh, _overlayCells, _overlayCols, alpha);
+                }
             }
             SetSwirlHidden(alpha >= 0.5f && Plugin.HideSwirl.Value);
 
@@ -345,25 +353,39 @@ namespace LivePortals
             UpdateResolutionTier(gc != null ? gc.m_camera : null);
             _sw.Restart();
             bool dump = _dumped != DumpRequest;
-            // One camera pass: the sky, then the guesses (skirts and far shell: unlit, no depth writes), then the
-            // reliefs over them with depth. The capture meshes exist only while this camera renders: no other
-            // camera ever sees them. The far side's grass is real geometry, drawn only close up where tufts can
-            // be told apart.
-            if (_eyeDist <= Plugin.SecondaryViewpointRange.Value + 4f) _set.Grass?.Draw(_cam, Matrix4x4.TRS(anchor0, rB, Vector3.one));
-            SetReliefsEnabled(true);
-            // No scene fog on the reliefs: the captures carry the far side's own fog, and the unlit shader would
-            // add the viewer's on top (in the viewer's biome colour: a pink forest seen from the plains). And no
-            // shadow maps: nothing here receives them, and rendering the cascades is the dearest part of a pass.
+            // Two passes, as up to 0.9.3. Pass one: the sky, the far side's grass, then the guesses (skirts and far
+            // shell), opaque and depth-tested among themselves so the nearest wins. Pass two keeps that picture,
+            // clears depth only, and draws the reliefs over it, so a skirt (which spans all the depth between two
+            // surfaces) never hides them. (0.9.4 to 0.9.15 drew the guesses blended in one pass without depth:
+            // whichever skirt drew last showed, and rocks and chests stretched out across the picture.) The
+            // capture meshes exist only while this camera renders: no other camera ever sees them.
+            // No scene fog: the captures carry the far side's own fog, and the unlit shader would add the viewer's
+            // on top. No shadow maps: nothing here receives them, and the cascades are the dearest part of a pass.
             bool fog = RenderSettings.fog;
             float shadows = QualitySettings.shadowDistance;
+            var clear = _cam.clearFlags;
+            int mask = _cam.cullingMask;
             RenderSettings.fog = false;
             QualitySettings.shadowDistance = 0f;
-            try { _cam.Render(); }
+            try
+            {
+                if (_eyeDist <= Plugin.SecondaryViewpointRange.Value + 4f) _set.Grass?.Draw(_cam, Matrix4x4.TRS(anchor0, rB, Vector3.one));
+                SetReliefsEnabled(true, true);
+                _cam.Render();
+                SetReliefsEnabled(true, false);
+                _cam.clearFlags = CameraClearFlags.Depth;
+                _cam.cullingMask = 1 << Plugin.FaceLayer;
+                SetReliefsEnabled(false, true);
+                _cam.Render();
+            }
             finally
             {
+                SetReliefsEnabled(false, false);
+                SetReliefsEnabled(true, false);
+                _cam.clearFlags = clear;
+                _cam.cullingMask = mask;
                 RenderSettings.fog = fog;
                 QualitySettings.shadowDistance = shadows;
-                SetReliefsEnabled(false);
             }
             _sw.Stop();
             _msAccum += _sw.Elapsed.TotalMilliseconds; _renders++;
@@ -447,7 +469,7 @@ namespace LivePortals
             if (_overlay == null) WindowMaterial.SetPaneTexture(_paneMat, _rt);
         }
 
-        private void SetReliefsEnabled(bool on)
+        private void SetReliefsEnabled(bool under, bool on)
         {
             // Secondary viewpoints only matter close up, where you look around near things; from farther away the
             // primary alone is indistinguishable and a third of the geometry.
@@ -456,8 +478,7 @@ namespace LivePortals
             {
                 bool use = on && (k == 0 || secondaries);
                 var rl = _reliefs[k];
-                foreach (var r in rl.Under) r.enabled = use;
-                foreach (var r in rl.Renderers) r.enabled = use;
+                foreach (var r in under ? rl.Under : rl.Renderers) r.enabled = use;
             }
         }
 
@@ -612,7 +633,10 @@ namespace LivePortals
             {
                 _overlay = new GameObject("LivePortals_Picture");
                 _overlay.transform.SetParent(_pane.transform, false);
-                _overlay.AddComponent<MeshFilter>().sharedMesh = Plugin.PaneRound.Value ? _disc : _quad;
+                _overlayMesh = Dissolve.MakeMesh(Plugin.PaneRound.Value, out _overlayCells);
+                _overlayCols = new Color32[_overlayCells.Length * 4];
+                _overlayShown = -1f;
+                _overlay.AddComponent<MeshFilter>().sharedMesh = _overlayMesh;
                 _overlayRenderer = _overlay.AddComponent<MeshRenderer>();
                 _overlayRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                 _overlayRenderer.receiveShadows = false;
@@ -713,7 +737,7 @@ namespace LivePortals
         private static Transform AddLayer(Relief rl, Transform parent, string name, Mesh mesh, Texture tex, bool under, float cutoff, int order)
         {
             if (mesh == null) return null;
-            var mat = under ? WindowMaterial.MakeUnder(tex, order) : WindowMaterial.Make(tex, cutoff, order);
+            var mat = WindowMaterial.Make(tex, cutoff, order);
             return AddLayer(rl, parent, name, mesh, mat, under, rl.Materials);
         }
 
@@ -796,7 +820,8 @@ namespace LivePortals
             if (_light != null) Destroy(_light.gameObject);
             if (_paneMat != null) Destroy(_paneMat);
             if (_overlayMat != null) Destroy(_overlayMat);
-            _overlay = null; _overlayRenderer = null; _overlayMat = null;
+            if (_overlayMesh != null) Destroy(_overlayMesh);
+            _overlay = null; _overlayRenderer = null; _overlayMat = null; _overlayMesh = null;
             if (_rt != null) { _rt.Release(); Destroy(_rt); }
             _built = false;
         }

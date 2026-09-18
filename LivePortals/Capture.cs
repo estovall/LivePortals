@@ -356,6 +356,10 @@ namespace LivePortals
             foreach (var ps in hidden.Flames)
             {
                 if (ps == null) continue;
+                // The soft glow billboards around a fire are flame-coloured over a wide area; they stay in the picture
+                // but get no stand-in, or the wall and pillars behind them come forward with them (0.9.11).
+                string n = (ps.gameObject.name + "|" + (ps.sharedMaterial != null ? ps.sharedMaterial.name : "")).ToLowerInvariant();
+                if (n.Contains("glow") || n.Contains("light") || n.Contains("smoke") || n.Contains("distort")) continue;
                 // A quad through the flame's centre, turned to face each capture point as it is rendered: its depth is
                 // the fire's own, not a sphere's near side.
                 var go = GameObject.CreatePrimitive(PrimitiveType.Quad);
@@ -652,9 +656,9 @@ namespace LivePortals
                 {
                     Color32 m = f.FlameMask[p];
                     int ml = m.r + m.g + m.b;
-                    if (ml < 150) continue;
+                    if (ml < 330) continue;
                     Color32 cc = col[p];
-                    if (ml * 2 < cc.r + cc.g + cc.b) continue;
+                    if (ml * 4 < (cc.r + cc.g + cc.b) * 3) continue;
                     int y = p / res;
                     float d = Linear(f.ProxyGpu[(_flipY ? res - 1 - y : y) * res + p % res], _reversedZ, far);
                     if (d >= far * 0.5f || d >= raw.Depth[p]) continue;

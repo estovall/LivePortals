@@ -126,25 +126,7 @@ namespace LivePortals
         internal static Material MakePane(Texture rt)
         {
             if (_setup == null || !_setup.Emissive) return null;
-            if (_noise == null)
-            {
-                _noise = new Texture2D(64, 64, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Repeat, filterMode = FilterMode.Point, name = "LivePortals_Dissolve" };
-                // The alpha is the order in which texels appear: the higher, the earlier. Mostly from the rim inward
-                // (the pane's UVs run 0..1 across the ring, so the rim is at radius 0.5), with enough randomness
-                // that the front is ragged rather than a closing iris.
-                var px = new Color32[64 * 64];
-                var rng = new System.Random(7);
-                for (int y = 0; y < 64; y++)
-                    for (int x = 0; x < 64; x++)
-                    {
-                        float dx = (x + 0.5f) / 64f - 0.5f, dy = (y + 0.5f) / 64f - 0.5f;
-                        float r = Mathf.Clamp01(Mathf.Sqrt(dx * dx + dy * dy) * 2f);
-                        float order = 0.65f * r + 0.35f * (float)rng.NextDouble();
-                        px[y * 64 + x] = new Color32(0, 0, 0, (byte)(1 + Mathf.RoundToInt(order * 254f)));
-                    }
-                _noise.SetPixels32(px);
-                _noise.Apply(false, false);
-            }
+            if (_noise == null) _noise = Dissolve.Noise();
             var m = new Material(_setup.Shader);
             Configure(m, _setup, _noise, 0f);
             m.SetTexture(_setup.EmissionMap, rt);
@@ -163,10 +145,7 @@ namespace LivePortals
         /// <summary>visible 0..1: how much of the pane has dissolved in.</summary>
         internal static void SetPaneVisible(Material m, float visible)
         {
-            // Done by two thirds of the way in: the last few stray holes, with the real sky behind them, read as a
-            // glitch rather than as a transition.
-            visible = Mathf.Clamp01(visible * 1.5f);
-            m.SetFloat("_Cutoff", visible >= 0.999f ? 0f : Mathf.Clamp01(1f - visible) + 0.004f);
+            m.SetFloat("_Cutoff", Dissolve.Cutoff(visible));
         }
 
         internal static void SetTint(Material m, Color tint)

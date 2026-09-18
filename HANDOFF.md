@@ -358,6 +358,15 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     Added `PaneStyle` (Sprite = new, Emissive = 0.9.7 pane via `WindowMaterial.MakePane(rt)`), so the new pane can
     be backed out per user. Do not add more until 0.9.15 is confirmed at: day approach fade, angles, night,
     pillars after a recapture, misty weather.
+39. 0.9.16, Max's three screenshots on 0.9.15: (a) rock/chest/ground "stretching out" (new since 0.9.4: skirts and
+    shell were Sprites/Default blended without depth, painter's order); back to opaque cut-out `Make` and the two
+    camera passes of 0.9.3 in `RenderNow` (`SetReliefsEnabled(under, on)` again), fog/shadows still off. (b) pillars
+    still missing after a fresh capture: the hearth's glow billboards passed `IsFlame` and dominated dark pillar
+    pixels; `MakeProxies` now skips renderers named glow/light/smoke/distort and the mask needs sum >= 330 and
+    >= 3/4 of the colour pixel. (c) "the portals now fade, which undid the cool pixelated ring": new `Dissolve.cs`
+    (32x32 cells with the old order formula; the plug's noise texture is built from the cells; the sprite is a
+    per-cell mesh whose vertex alpha switches per cell) so plug and picture dissolve as identical blocks.
+    **Untested.**
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.16
+
+- The blocky dissolve is back, and without the half-transparent picture. The plug and the picture now dissolve in as the same blocks: the picture is cut per cell instead of faded.
+- Rocks, chests and ground no longer stretch across the picture. 0.9.4 had started drawing the skirts blended in one pass without depth, so whichever drew last showed. They are opaque and depth-tested again, in a pass of their own as before.
+- Pillars near a fire stay whole. The fire's soft glow billboards no longer get a depth stand-in, and only bright flame pixels move to the fire's depth. Needs a trip through the portal to recapture.
+
 ## 0.9.15
 
 - New setting `PaneStyle`: `Sprite` (the 0.9.10 way, bright at night) or `Emissive` (the pane exactly as 0.8.12 to 0.9.9 drew it). If the new pane misbehaves, `Emissive` gives back the long-tested look, with its night darkening.
