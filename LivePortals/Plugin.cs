@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "Immersive Portals";
-        public const string VERSION = "0.9.8";
+        public const string VERSION = "0.9.9";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -386,6 +386,26 @@ namespace LivePortals
                 Config.Save();
                 player.Message(MessageHud.MessageType.Center, "LivePortals: glass test " + (GlassTest.Value ? "ON (own capture, no mapping)" : "OFF"));
                 Log.LogInfo("LivePortals: glass test " + GlassTest.Value);
+            }
+            // Night-darkening diagnostics (0.9.9): what is darkening the pane on screen when the window texture is bright?
+            if (ZInput.GetKeyDown(KeyCode.KeypadMultiply, false))
+            {
+                var pp = GameCamera.instance.m_camera.GetComponent<UnityEngine.PostProcessing.PostProcessingBehaviour>();
+                if (pp != null) { pp.enabled = !pp.enabled; player.Message(MessageHud.MessageType.Center, "LivePortals: game post-processing " + (pp.enabled ? "ON" : "OFF")); Log.LogInfo("LivePortals: post-processing " + pp.enabled); }
+                else player.Message(MessageHud.MessageType.Center, "LivePortals: no post-processing on the camera");
+            }
+            if (ZInput.GetKeyDown(KeyCode.KeypadMinus, false))
+            {
+                var pp = GameCamera.instance.m_camera.GetComponent<UnityEngine.PostProcessing.PostProcessingBehaviour>();
+                if (pp != null && pp.profile != null) { pp.profile.fog.enabled = !pp.profile.fog.enabled; player.Message(MessageHud.MessageType.Center, "LivePortals: game fog effect " + (pp.profile.fog.enabled ? "ON" : "OFF")); Log.LogInfo("LivePortals: fog effect " + pp.profile.fog.enabled); }
+            }
+            if (ZInput.GetKeyDown(KeyCode.KeypadPlus, false))
+            {
+                PortalWindow.PaneMode = (PortalWindow.PaneMode + 1) % 3;
+                foreach (var w in PortalWindow.All) w.ApplyPaneMode();
+                string name = PortalWindow.PaneMode == 0 ? "solid emissive (normal)" : PortalWindow.PaneMode == 1 ? "sprite (transparent, no depth)" : "additive (transparent, no depth)";
+                player.Message(MessageHud.MessageType.Center, "LivePortals: pane " + name);
+                Log.LogInfo("LivePortals: pane mode " + PortalWindow.PaneMode + " " + name);
             }
             bool print = ZInput.GetKeyDown(KeyCode.Keypad5, false);
             if (print) PortalWindow.DumpRequest++;

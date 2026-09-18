@@ -400,6 +400,27 @@ namespace LivePortals
             catch (System.Exception e) { Plugin.Log.LogWarning("LivePortals: window dump failed: " + e.Message); }
         }
 
+        /// <summary>Diagnostic (numpad +): 0 the solid emissive pane, 1 the old sprite pane, 2 an additive pane. To find what darkens the pane at night.</summary>
+        internal static int PaneMode;
+
+        internal void ApplyPaneMode()
+        {
+            if (_paneRenderer == null || _rt == null) return;
+            Material m = null;
+            bool solid = false;
+            if (PaneMode == 0) { m = WindowMaterial.MakePane(_rt); solid = m != null; }
+            else if (PaneMode == 2 && WindowMaterial.AdditiveWorks) m = WindowMaterial.MakeAdditive(_rt);
+            if (m == null)
+            {
+                m = new Material(FindShader("Sprites/Default", "Unlit/Transparent", "Unlit/Texture"));
+                m.mainTexture = _rt;
+            }
+            if (_paneMat != null) Destroy(_paneMat);
+            _paneMat = m;
+            _paneSolid = solid;
+            _paneRenderer.sharedMaterial = _paneMat;
+        }
+
         /// <summary>Numpad 5 bumps this; every visible window then saves what it drew and logs where the eye was.</summary>
         internal static int DumpRequest;
         private int _dumped;
@@ -582,6 +603,7 @@ namespace LivePortals
                 _paneMat.mainTexture = _rt;
             }
             _paneRenderer.sharedMaterial = _paneMat;
+            if (PaneMode != 0) ApplyPaneMode();
 
             var lightGo = new GameObject("LivePortals_Light");
             _light = lightGo.AddComponent<Light>();
