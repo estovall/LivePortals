@@ -490,6 +490,31 @@ namespace LivePortals
             }
         }
 
+        // The scene's point and spot lights, found afresh every two seconds; switched off around a window render.
+        private static readonly List<Light> _sceneLights = new List<Light>();
+        private static readonly List<Light> _lightsOff = new List<Light>();
+        private static float _sceneLightsAt = -10f;
+
+        private static void LightsOff()
+        {
+            if (Time.time - _sceneLightsAt > 2f)
+            {
+                _sceneLightsAt = Time.time;
+                _sceneLights.Clear();
+                foreach (var l in Object.FindObjectsByType<Light>(FindObjectsSortMode.None))
+                    if (l.type != LightType.Directional) _sceneLights.Add(l);
+            }
+            _lightsOff.Clear();
+            foreach (var l in _sceneLights)
+                if (l != null && l.enabled) { l.enabled = false; _lightsOff.Add(l); }
+        }
+
+        private static void LightsBack()
+        {
+            foreach (var l in _lightsOff) if (l != null) l.enabled = true;
+            _lightsOff.Clear();
+        }
+
         /// <summary>Redraw the window now, with the geometry of the last Update. Called by the scheduler.</summary>
         internal void RenderNow()
         {
@@ -516,6 +541,14 @@ namespace LivePortals
             int mask = _cam.cullingMask;
             RenderSettings.fog = false;
             QualitySettings.shadowDistance = 0f;
+            // No reflections and no point or spot lights either. The reliefs are black surfaces showing the picture
+            // as emission, and the game's pipeline still gives a black non-metal its 4% reflectance, rising steeply
+            // at grazing angles: seen obliquely they mirrored the night sky as a milky blue film and the torches by
+            // the ring as a gold-pink sheen, on the dark parts, shifting with the eye (0.9.22 to 0.9.37; the offline
+            // redraw of the same capture, lit by nothing, was clean). The sun and moon stay on for the grass.
+            float reflect = RenderSettings.reflectionIntensity;
+            RenderSettings.reflectionIntensity = 0f;
+            LightsOff();
             try
             {
                 // The grass is only drawn from near by (far off it is smaller than a pixel of the window and thousands
@@ -547,6 +580,8 @@ namespace LivePortals
                 _cam.cullingMask = mask;
                 RenderSettings.fog = fog;
                 QualitySettings.shadowDistance = shadows;
+                RenderSettings.reflectionIntensity = reflect;
+                LightsBack();
             }
             _sw.Stop();
             _msAccum += _sw.Elapsed.TotalMilliseconds; _renders++;

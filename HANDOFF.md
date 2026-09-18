@@ -671,6 +671,15 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     a sunless capture follows the ambient ratio only. The pink patch is the torchlight layer over the smeared
     skirt geometry at oblique angles (not touched). None of the numpad diagnostics changed the look, which
     confirmed the pane is clean. **Untested.**
+70. 0.9.38 testing: gloss still there on 0.9.37 ("i guess i just have to accept it"). Offline: tools/LayerTest
+    `capture` on 1_439902 from the dump's EYES (the harness now reads the PNGs through `Png.Decode`, no .rgba
+    exports needed) draws a clean yard: the film is not in the layers, it is the game's lighting of the reliefs
+    in the window camera: F0 0.04 Fresnel on black dielectric surfaces reflecting the sky (blue film) and the
+    torches by the near ring (gold-pink), angle dependent. `PortalWindow.LightsOff/LightsBack` (point/spot
+    lights found every 2 s, disabled around the render) and `RenderSettings.reflectionIntensity = 0` for the
+    window passes; directional lights stay for the grass. If a sheen remains, it is the directional light's
+    specular: next step would be a metallic-1/black-albedo G-buffer (map (255,0,0,0)) so the specular colour is
+    black. **Untested.** Caveat: live grass in the window is no longer lit by torches near the viewer's ring.
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

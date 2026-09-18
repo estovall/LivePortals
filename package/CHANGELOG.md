@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.38 (TESTING: on the `testing` branch only, not published)
+
+- The glossy film on the window is gone. The reliefs are black surfaces showing the picture as emission, and the game's pipeline still gave them a black non-metal's reflectance, rising steeply at grazing angles: seen obliquely they mirrored the sky as a milky blue film and nearby torches as a gold-pink sheen on the dark parts, shifting with the eye. Environment reflections and every point and spot light are now switched off while a window renders; the sun and moon stay on for the grass. (The same capture redrawn offline without lighting was clean, which is what pointed at the lighting.)
+
 ## 0.9.37 (TESTING: on the `testing` branch only, not published)
 
 - A capture taken on a moonless night no longer comes up as a milky blue film when seen under a moon. The base of the picture was scaled by the sun ratio even when the capture had no sun in it; it now follows the sun and ambient ratios in the proportions the capture was lit with.

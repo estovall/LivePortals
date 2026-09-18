@@ -71,6 +71,17 @@ static class Program
     static Color32[] ReadRgba(string path, out int res)
     {
         res = 0;
+        // The stored PNG straight through the mod's own decoder (the .rgba exports of export_capture.py are optional).
+        string png = Path.ChangeExtension(path, ".png");
+        if (!File.Exists(path) && File.Exists(png))
+        {
+            var raw = LivePortals.Png.Decode(File.ReadAllBytes(png), out int w, out int h);
+            if (raw == null) return null;
+            res = w;
+            var q = new Color32[w * h];
+            for (int i = 0; i < q.Length; i++) q[i] = new Color32(raw[i * 4], raw[i * 4 + 1], raw[i * 4 + 2], raw[i * 4 + 3]);
+            return q;
+        }
         if (!File.Exists(path)) return null;
         var b = File.ReadAllBytes(path);
         res = (int)Math.Round(Math.Sqrt(b.Length / 4));
