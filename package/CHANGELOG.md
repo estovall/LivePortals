@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.30 (TESTING: on the `testing` branch only, not published)
+
+- Departure captures read the GPU on the spot instead of asynchronously: rendered in one frame, they queued over a hundred asynchronous reads at once, more than the GPU hands back, and the capture was lost. Arrivals, spread over frames, keep the asynchronous reads.
+
 ## 0.9.29 (TESTING: on the `testing` branch only, not published)
 
 - Departure captures no longer lose the race against a fast teleport. With the far side already loaded the game moves you and unloads the place within a moment of stepping in, and a capture spread over several frames found "the portal went away". A departure capture now renders all its faces in one frame, 0.2 s after stepping in (`DepartureDelay`, brought down from 0.8 in existing configs), under the fade.

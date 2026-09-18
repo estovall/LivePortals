@@ -531,7 +531,7 @@ namespace LivePortals
         /// whose differing pixels were never drawn (sky); and the GPU's own depth. Their pixels reach f later
         /// (or now, without async readback). The caller has hidden the player, the portal and the windows.
         /// </summary>
-        internal static void RenderFace(Rig rig, FaceRaw f)
+        internal static void RenderFace(Rig rig, FaceRaw f, bool sync = false)
         {
             var cam = rig.Cam; var colorCam = rig.ColorCam;
             cam.transform.SetPositionAndRotation(f.Pos, f.Rot);
@@ -545,14 +545,14 @@ namespace LivePortals
                 cam.depthTextureMode = DepthTextureMode.None;
                 colorCam.backgroundColor = RenderSettings.fogColor;
                 colorCam.targetTexture = rig.Color; colorCam.Render(); colorCam.targetTexture = null;
-                Read(rig.Color, rig.TexC, rig.Res, f, 0);
+                Read(rig.Color, rig.TexC, rig.Res, f, 0, sync);
                 // 1b. The same view with the sun, the sky light and the fog off: only what torches, fires and
                 //     glowing things contribute. The window adds this part back untinted, so torchlight does not
                 //     fade with the sun, and the flames (which are emissive) survive the night.
                 if (Plugin.CaptureLocalLight.Value)
                 {
                     RenderLocalLight(rig, false);
-                    Read(rig.A, rig.TexA, rig.Res, f, 4);
+                    Read(rig.A, rig.TexA, rig.Res, f, 4, sync);
                 }
                 // 1c. And with only the sun off: what the sky lights (plus 1b). At night the sun's share of the
                 //     picture all but goes while the sky's share only dims to a third or so; dimmed together by one
@@ -561,7 +561,7 @@ namespace LivePortals
                 if (Plugin.CaptureSkyLight.Value && f.PointIndex == 0)
                 {
                     RenderLocalLight(rig, true);
-                    Read(rig.Color, rig.TexC, rig.Res, f, 7);
+                    Read(rig.Color, rig.TexC, rig.Res, f, 7, sync);
                 }
                 // 2. Sky mask: no fog, cleared black and then white. Where the two differ, nothing (or only
                 //    something thin, like the haze dome the game hangs over the whole sky) was drawn, and if
@@ -571,12 +571,12 @@ namespace LivePortals
                 RenderSettings.fog = false;
                 cam.backgroundColor = Color.black;
                 cam.targetTexture = rig.A; cam.Render(); cam.targetTexture = null;
-                Read(rig.A, rig.TexA, rig.Res, f, 1);
+                Read(rig.A, rig.TexA, rig.Res, f, 1, sync);
                 cam.backgroundColor = Color.white;
                 cam.targetTexture = rig.B; cam.Render(); cam.targetTexture = null;
-                Read(rig.B, rig.TexB, rig.Res, f, 2);
+                Read(rig.B, rig.TexB, rig.Res, f, 2, sync);
                 // 3. Depth per pixel.
-                if (f.NeedGpu) { RenderDepthPass(rig, _method); Read(rig.F, rig.TexF, rig.Res, f, 3); }
+                if (f.NeedGpu) { RenderDepthPass(rig, _method); Read(rig.F, rig.TexF, rig.Res, f, 3, sync); }
                 // 4. Flames: which pixels are flame (the flames rendered alone, on their own layer) and how far
                 //    away each fire is (the depth-only stand-ins rendered alone). Flames write no depth, so
                 //    without this a hearth is painted onto the wall behind it.
@@ -596,7 +596,7 @@ namespace LivePortals
                         cam.allowHDR = rig.Hdr; cam.allowMSAA = rig.Msaa;
                         cam.backgroundColor = Color.black;
                         cam.targetTexture = rig.A; cam.Render(); cam.targetTexture = null;
-                        Read(rig.A, rig.TexA, rig.Res, f, 5);
+                        Read(rig.A, rig.TexA, rig.Res, f, 5, sync);
                     }
                     finally
                     {
@@ -609,7 +609,7 @@ namespace LivePortals
                             if (to.sqrMagnitude > 1e-4f) go.transform.rotation = Quaternion.LookRotation(to);
                             go.GetComponent<MeshRenderer>().enabled = true;
                         }
-                    try { RenderDepthPass(rig, _method); Read(rig.F, rig.TexF, rig.Res, f, 6); }
+                    try { RenderDepthPass(rig, _method); Read(rig.F, rig.TexF, rig.Res, f, 6, sync); }
                     finally
                     {
                         foreach (var go in rig.Proxies) if (go != null) go.GetComponent<MeshRenderer>().enabled = false;
@@ -683,9 +683,12 @@ namespace LivePortals
         }
 
         /// <summary>Start reading a render target back into slot (0 colour, 1/2 sky pair, 3 depth, 4 local light). Without async readback it is read now.</summary>
-        private static void Read(RenderTexture rt, Texture2D into, int res, FaceRaw f, int slot)
+        private static void Read(RenderTexture rt, Texture2D into, int res, FaceRaw f, int slot, bool sync)
         {
-            if (_asyncOk)
+            // sync: a departure renders every face in one frame, and the hundred-odd asynchronous requests that
+            // would queue at once are more than the GPU hands back (0.9.29: "could not hand back face 5 of
+            // viewpoint 3"); those are read on the spot instead, under the fade.
+            if (_asyncOk && !sync)
             {
                 f.Req[slot] = AsyncGPUReadback.Request(rt, 0, slot == 3 || slot == 6 ? TextureFormat.RFloat : TextureFormat.RGBA32);
                 f.Issued[slot] = true;

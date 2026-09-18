@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "Immersive Portals";
-        public const string VERSION = "0.9.29";
+        public const string VERSION = "0.9.30";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;

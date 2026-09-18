@@ -613,6 +613,10 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     not hand back face" loss. `CaptureRun.Hurry` (departures): all faces in one frame, no frame budget;
     `DepartureDelay` default 0.2 (ConfigVersion 4 lowers stored values above it); `CaptureSeries` retries once
     with plain reads after a read-back failure. **Untested.**
+62. 0.9.30 testing: on 0.9.29 the first departure capture failed "could not hand back face 5 of viewpoint 3" and
+    the retry could not run (portal gone). Cause: Hurry issues ~126 AsyncGPUReadback requests in one frame.
+    `Capture.RenderFace(rig, f, sync)` / `Read(..., sync)`: departures read synchronously; arrivals stay async.
+    **Untested.**
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

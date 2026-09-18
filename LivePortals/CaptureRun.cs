@@ -116,7 +116,7 @@ namespace LivePortals
                     // or six camera renders, 25 ms on a middling machine, and two of them back to back is a frame
                     // at 20 fps, eleven times in a row.
                     float budget = Hurry ? 1f : Plugin.CaptureFrameBudgetMs.Value / 1000f;
-                    for (int n = 0; n < perFrame && _issued < _faces.Count && (n == 0 || Time.realtimeSinceStartup - t0 < budget); n++, _issued++) Capture.RenderFace(_rig, _faces[_issued]);
+                    for (int n = 0; n < perFrame && _issued < _faces.Count && (n == 0 || Time.realtimeSinceStartup - t0 < budget); n++, _issued++) Capture.RenderFace(_rig, _faces[_issued], Hurry);
                 }
                 catch (Exception e) { Fail("render failed: " + e.Message); }
                 finally { _hidden.Show(); }
