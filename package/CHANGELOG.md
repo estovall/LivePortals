@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.33 (TESTING: on the `testing` branch only, not published)
+
+- No more stutter after a trip. 0.9.32 built the layers on six threads at once, and their scratch memory kept the collector busy enough to hold the game at 12 fps for a couple of seconds after each arrival. Three low-priority threads now (`CaptureThreads`), and captures render one face per frame (`CaptureFacesPerFrame`, brought down from 2 in existing configs).
+
 ## 0.9.32 (TESTING: on the `testing` branch only, not published)
 
 - The window at the other end shows the place you just left within a moment of arriving. The capture's layers are now built on several cores while the screen is black and handed to the window straight from memory; the files are written afterwards in the background. Before, the window waited for the files, four to nine seconds after you had arrived.

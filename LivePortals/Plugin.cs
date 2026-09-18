@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "Immersive Portals";
-        public const string VERSION = "0.9.32";
+        public const string VERSION = "0.9.33";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -60,6 +60,7 @@ namespace LivePortals
         internal static ConfigEntry<float> DepartureDelay;
         internal static ConfigEntry<float> ArrivalDelay;
         internal static ConfigEntry<int> CaptureFacesPerFrame;
+        internal static ConfigEntry<int> CaptureThreads;
         internal static ConfigEntry<string> CaptureFolder;
         internal static ConfigEntry<bool> AsyncReadback;
         internal static ConfigEntry<bool> LiveSky;
@@ -200,9 +201,12 @@ namespace LivePortals
             CaptureFrameBudgetMs = Config.Bind("3. Capture", "CaptureFrameBudgetMs", 10f,
                 new ConfigDescription("During a capture, no further cube face is started in a frame that has already spent this long on faces, milliseconds (one face always is). Lower = smoother frames and a longer capture.",
                     new AcceptableValueRange<float>(0f, 100f)));
-            CaptureFacesPerFrame = Config.Bind("3. Capture", "CaptureFacesPerFrame", 2,
+            CaptureThreads = Config.Bind("3. Capture", "CaptureThreads", 3,
+                new ConfigDescription("Background threads that turn a capture into layers and files. More is faster but costs frame rate for a moment after each trip (the collector).", new AcceptableValueRange<int>(1, 8)));
+            CaptureFacesPerFrame = Config.Bind("3. Capture", "CaptureFacesPerFrame", 1,
                 new ConfigDescription("Cube faces rendered per frame during a capture (four renders each). Fewer = smoother frames, more frames for the capture, and things that move can differ between faces.",
                     new AcceptableValueRange<int>(1, 24)));
+            if (configVersion.Value < 5) { if (CaptureFacesPerFrame.Value == 2) CaptureFacesPerFrame.Value = 1; configVersion.Value = 5; }
             AsyncReadback = Config.Bind("3. Capture", "AsyncReadback", true,
                 "Read the capture's pixels back from the GPU without waiting for it (checked against a plain read once per session; falls back by itself if it does not match).");
             LiveSky = Config.Bind("4. Look", "LiveSky", true, "Draw the current sky behind the capture where the capture saw sky, so day and night through the window follow the clock.");

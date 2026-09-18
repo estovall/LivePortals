@@ -192,11 +192,20 @@ namespace LivePortals
 
         internal void Abort() => Fail("aborted");
 
+        private static void Spawn(Action work)
+        {
+            new Thread(() => work()) { IsBackground = true, Name = "LivePortals capture face", Priority = System.Threading.ThreadPriority.BelowNormal }.Start();
+        }
+
         // ---- worker thread ----
         private void Work()
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            int threads = Mathf.Max(1, Mathf.Min(6, System.Environment.ProcessorCount / 2));
+            // Three at most, below normal priority, on their own threads rather than the pool's (which run at normal
+            // priority): six threads at once (0.9.32) starved the game of its frame for a couple of seconds after
+            // each trip, largely through the collector, which each face's scratch arrays keep busy. The layers take
+            // a moment longer and the frame rate holds.
+            int threads = Mathf.Max(1, Mathf.Min(Plugin.CaptureThreads.Value, System.Environment.ProcessorCount / 2));
             var gate = new SemaphoreSlim(threads);
             int pending = 0;
             try
@@ -221,7 +230,7 @@ namespace LivePortals
                     }
                     var face = f;
                     Interlocked.Increment(ref pending);
-                    ThreadPool.QueueUserWorkItem(_ =>
+                    Spawn(() =>
                     {
                         gate.Wait();
                         try
@@ -260,7 +269,7 @@ namespace LivePortals
                         if (l == null) continue;
                         int point = k, fc = i;
                         Interlocked.Increment(ref pending);
-                        ThreadPool.QueueUserWorkItem(_ =>
+                        Spawn(() =>
                         {
                             gate.Wait();
                             try { if (!_abort) Storage.SaveFace(_job, point, fc, l, _points[point].Res); }

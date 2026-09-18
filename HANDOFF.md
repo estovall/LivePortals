@@ -634,6 +634,11 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     (b) gloss: the zeroing texture was opaque black; alpha is smoothness in these shaders; now clear black.
     **Untested.** If the window still lags, the remaining latency is the scan (0.5 s), the loader budget
     (4 ms/frame) and the arrival capture's frames.
+65. 0.9.33 testing: on 0.9.32 Max: "stutters pretty badly for a couple seconds after going through, 12 fps from
+    70". Log: layered in ~2 s with 6 ThreadPool threads (16 cores), rendered over 12-19 frames at ~25 ms. Now
+    `Spawn` = dedicated BelowNormal threads, `CaptureThreads` (3) gates both layering and encoding,
+    `CaptureFacesPerFrame` 1 (ConfigVersion 5 migrates a stored 2). If it still stutters, next suspects are the
+    collector (Layers.Process allocations) and the memory loader's uploads (FrameBudgetMs 4). **Untested.**
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 
