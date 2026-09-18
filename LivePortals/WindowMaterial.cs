@@ -36,9 +36,24 @@ namespace LivePortals
         private static Setup _setup;
         private static Shader _addShader;
         private static string _addColorProp;
-        private static float _addGain = 1f;
+        private static float _addGain = 1f;        // for the reliefs' meshes
+        private static float _addGainDouble = 1f;  // for a mesh with both windings (the pane), which a shader that culls nothing draws twice
         /// <summary>An additive, depth-tested shader was found: the local-light layer can be drawn on top of the reliefs.</summary>
         internal static bool AdditiveWorks => _addShader != null;
+        /// <summary>The additive shader has a colour to scale it by: a layer's strength can change with the hour.</summary>
+        internal static bool AdditiveScalable => _addShader != null && _addColorProp != null;
+
+        /// <summary>Strength of an additive layer, per channel, as a multiplier of light (not of pixel values).</summary>
+        internal static void SetAdditiveGain(Material m, Color linearGain, bool bothWindings = false)
+        {
+            if (m == null || _addColorProp == null) return;
+            float calib = bothWindings ? _addGainDouble : _addGain;
+            // The colour goes through the engine's sRGB-to-linear conversion on its way to the shader, as _addGain does.
+            m.SetColor(_addColorProp, new Color(
+                Mathf.LinearToGammaSpace(Mathf.Max(0f, linearGain.r)) * calib,
+                Mathf.LinearToGammaSpace(Mathf.Max(0f, linearGain.g)) * calib,
+                Mathf.LinearToGammaSpace(Mathf.Max(0f, linearGain.b)) * calib, 1f));
+        }
 
         private static Texture2D _black;
 
@@ -352,9 +367,25 @@ namespace LivePortals
                                 nearMr.sharedMaterial = a; farMr.sharedMaterial = opaque;
                                 Color32 g = Shoot(cam, rt, read, nearGo, farGo);
                                 float gain = g.g > 8 ? 128f / g.g : 1f;
-                                if (prop == null && Mathf.Abs(gain - 1f) > 0.25f) ok = false;
-                                else { _addShader = sh; _addColorProp = prop; _addGain = Mathf.Clamp(gain, 0.2f, 5f); }
-                                log.Append($" additive {sh.name}: {Hex(sum)} {Hex(none)} {Hex(hidden)} grey {g.g}{(ok ? " OK" : " (no gain control)")};");
+                                // The test quad has both windings, and a shader that culls nothing (the legacy particle
+                                // shaders) draws it twice: the grey comes back doubled. The reliefs' meshes have one
+                                // winding when the relief shader can switch culling off, and up to 0.9.21 their
+                                // torchlight layer was calibrated for two: half the light it should have been.
+                                int single = 0;
+                                var mf = nearGo.GetComponent<MeshFilter>();
+                                if (mf != null && mf.sharedMesh != null)
+                                {
+                                    var full = mf.sharedMesh; var one = Object.Instantiate(full);
+                                    one.triangles = new[] { 0, 2, 1, 1, 2, 3 }; mf.sharedMesh = one;
+                                    single = Shoot(cam, rt, read, nearGo, farGo).g;
+                                    one.triangles = new[] { 0, 1, 2, 1, 3, 2 };
+                                    single = Mathf.Max(single, Shoot(cam, rt, read, nearGo, farGo).g);
+                                    mf.sharedMesh = full; Object.Destroy(one);
+                                }
+                                float gainSingle = DoubleSidedMeshes || single <= 8 ? gain : 128f / single;
+                                if (prop == null && Mathf.Abs(gainSingle - 1f) > 0.25f) ok = false;
+                                else { _addShader = sh; _addColorProp = prop; _addGain = Mathf.Clamp(gainSingle, 0.2f, 5f); _addGainDouble = Mathf.Clamp(gain, 0.2f, 5f); }
+                                log.Append($" additive {sh.name}: {Hex(sum)} {Hex(none)} {Hex(hidden)} grey {g.g} (one winding {single}){(ok ? " OK" : " (no gain control)")};");
                             }
                             else if (addTries <= 12) log.Append($" additive {sh.name}: {Hex(sum)} {Hex(none)} {Hex(hidden)};");
                         }

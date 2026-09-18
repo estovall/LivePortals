@@ -223,19 +223,20 @@ namespace LivePortals
         public bool NeedGpu, Flip;
         public Color32[] RawCol, SkyA, SkyB; // colour with fog; the black- and white-cleared sky-mask pair
         public Color32[] RawLocal;           // colour by local lights and emission only (null when not captured)
+        public Color32[] RawNoSun;           // colour with only the sun switched off (null when not captured)
         public float[] Gpu;                  // device depth
         public Color32[] FlameMask;          // the flames rendered alone (null when there are none)
         public float[] ProxyGpu;             // device depth of the flames' stand-ins
         public RawFace Composed;             // only when depth comes from rays (main thread)
-        public readonly AsyncGPUReadbackRequest[] Req = new AsyncGPUReadbackRequest[7];
-        public readonly bool[] Issued = new bool[7];
+        public readonly AsyncGPUReadbackRequest[] Req = new AsyncGPUReadbackRequest[8];
+        public readonly bool[] Issued = new bool[8];
         public bool Error;
 
         public bool Ready => RawCol != null && SkyA != null && SkyB != null && (!NeedGpu || Gpu != null);
 
         public void Set(int slot, Color32[] px)
         {
-            if (slot == 0) RawCol = px; else if (slot == 1) SkyA = px; else if (slot == 2) SkyB = px; else if (slot == 4) RawLocal = px; else FlameMask = px;
+            if (slot == 0) RawCol = px; else if (slot == 1) SkyA = px; else if (slot == 2) SkyB = px; else if (slot == 4) RawLocal = px; else if (slot == 7) RawNoSun = px; else FlameMask = px;
         }
 
         public void SetDepth(int slot, float[] d)
@@ -246,7 +247,7 @@ namespace LivePortals
         /// <summary>Main thread: take whatever has arrived. True once everything is here, or something failed.</summary>
         public bool Collect()
         {
-            for (int s = 0; s < 7; s++)
+            for (int s = 0; s < 8; s++)
             {
                 if (!Issued[s]) continue;
                 var r = Req[s];
@@ -258,6 +259,6 @@ namespace LivePortals
             return Ready;
         }
 
-        public void Release() { RawCol = SkyA = SkyB = RawLocal = FlameMask = null; Gpu = null; ProxyGpu = null; }
+        public void Release() { RawCol = SkyA = SkyB = RawLocal = RawNoSun = FlameMask = null; Gpu = null; ProxyGpu = null; }
     }
 }

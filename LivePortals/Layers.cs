@@ -14,6 +14,12 @@ namespace LivePortals
         /// <summary>The same for the foreground pixels (flames, mostly); null when the face has no foreground.</summary>
         public Color32[] LocalFront;
         public int LocalRes;
+        /// <summary>
+        /// Sky light alone, background and foreground, at the picture's own resolution; null when not captured. Torchlight
+        /// is smooth and gets by on half; this is the picture itself in another light, and at half resolution its
+        /// soft edges against the picture's sharp ones drew a pale outline round every branch (0.9.22, at dusk).
+        /// </summary>
+        public Color32[] Ambient, AmbientFront;
         public FaceGrids Grids;
     }
 
@@ -342,8 +348,17 @@ namespace LivePortals
                 if (front != null) localFront = HalfRes(raw.Local, fg, sky, res, lres, true);
             }
 
+            Color32[] ambient = null, ambientFront = null;
+            if (raw.Ambient != null)
+            {
+                ambient = OneLayer(raw.Ambient, fg, sky, false);
+                if (front != null) ambientFront = OneLayer(raw.Ambient, fg, sky, true);
+            }
+
             return new FaceLayers
             {
+                Ambient = ambient,
+                AmbientFront = ambientFront,
                 Back = back,
                 Front = front,
                 Local = local,
@@ -351,6 +366,20 @@ namespace LivePortals
                 LocalRes = lres,
                 Grids = new FaceGrids { BgNode = bgNode, BgCell = bgCell, FgNode = fgNode, FgCell = fgCell },
             };
+        }
+
+        /// <summary>The pixels of one layer (foreground or background, never sky) of a light image; black elsewhere.</summary>
+        private static Color32[] OneLayer(Color32[] src, byte[] fg, bool[] sky, bool foreground)
+        {
+            var outp = new Color32[src.Length];
+            var black = new Color32(0, 0, 0, 255);
+            for (int p = 0; p < src.Length; p++)
+            {
+                if (sky[p] || (fg[p] != 0) != foreground) { outp[p] = black; continue; }
+                Color32 c = src[p];
+                outp[p] = new Color32(c.r, c.g, c.b, 255);
+            }
+            return outp;
         }
 
         /// <summary>The local-light image at half resolution, averaged over the pixels of one layer (foreground or background, never sky); black elsewhere.</summary>

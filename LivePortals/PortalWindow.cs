@@ -27,10 +27,15 @@ namespace LivePortals
             public readonly List<Material> Materials = new List<Material>();
             public readonly List<Material> Untinted = new List<Material>(); // the local-light layers: never tinted
             public int Glow;                                                 // how many of them
+            public readonly List<Material> Sky = new List<Material>();      // the sky-light layers: strength follows the ambient light
+            public readonly List<MeshRenderer> Additive = new List<MeshRenderer>(); // renderers of every additive layer (torchlight, sky light)
+            public readonly HashSet<Material> SunLit = new HashSet<Material>(); // layers with a sky-light layer over them: tinted by the sun alone
             public readonly List<Texture> Textures = new List<Texture>(); // blurred copies, ours to destroy
         }
 
         internal static readonly List<PortalWindow> All = new List<PortalWindow>();
+        internal static int DiagQueue = 2450;   // numpad +: the picture's render queue
+        internal static bool DiagPlugOff;       // numpad -: the depth plug
         /// <summary>Metres beyond the visible range at which a window exists and loads its capture (see Plugin's scan).</summary>
         internal const float PreloadMargin = 15f;
         private CaptureLoader _loader;
@@ -70,7 +75,13 @@ namespace LivePortals
         private Light _light;
         private GameObject _fireHolder;                                       // stands for the far ring's frame; see FireSet
         private readonly List<ParticleSystemRenderer> _fire = new List<ParticleSystemRenderer>();
-        private Color _tint = Color.white;
+        private Color _tint = Color.white, _sunTint = Color.white, _skyGain = Color.black;
+        private bool _split;
+        private RenderTexture _bloomRt;
+        private GameObject _bloom;
+        private MeshRenderer _bloomRenderer;
+        private Material _bloomMat;
+        private bool _bloomShown;
 
         private bool _built, _visible, _suppressed;
         private int _frame;
@@ -315,7 +326,12 @@ namespace LivePortals
             // The picture's u runs from pa, the viewer's left; the mesh has u=0 at -x, which is the viewer's left
             // only from behind. From the front, mirror the mesh (a negative x scale: the disc is symmetric, only
             // its UVs flip). Sprite shaders ignore texture scale/offset, so it has to be done on the geometry.
-            _pane.transform.localScale = new Vector3(front ? -w : w, h, 1f);
+            // The z scale turns the pane's one face, and its normals, toward the viewer. Up to 0.9.22 the disc had both
+            // windings on shared vertices, so its normals summed to nothing; the game's ambient occlusion read that
+            // from the G-buffer as fully occluded and multiplied the plug, and the picture drawn over it before the
+            // screen effects, to black (the stone portal at night; numpad * and + in the second 0.9.22 build).
+            float sz = realFront ? -1f : 1f;
+            _pane.transform.localScale = new Vector3(front ? -w : w, h, sz);
             // The plug and the picture dissolve in as the same blocks (see Dissolve): the picture is cut per cell,
             // never half transparent.
             if (_paneSolid) WindowMaterial.SetPaneVisible(_paneMat, alpha);
@@ -327,7 +343,8 @@ namespace LivePortals
                 // picture's render queue), swirls over it as it did over the old emissive pane.
                 float off = realFront ? 0.03f : -0.03f;
                 _pane.transform.position = c - n * off;
-                _overlay.transform.localPosition = new Vector3(0f, 0f, off);
+                _overlay.transform.localPosition = new Vector3(0f, 0f, off * sz); // the parent's z scale is sz
+                if (_bloom != null) _bloom.transform.localPosition = new Vector3(0f, 0f, off * sz);
                 float shown = Dissolve.Reveal(alpha);
                 if (Mathf.Abs(shown - _overlayShown) > 0.002f)
                 {
@@ -343,11 +360,20 @@ namespace LivePortals
             {
                 _tintTimer = 0.25f;
                 var primary = _set.Primary;
-                Color tint = Lighting.Tint(primary, Plugin.ToneMatch.Value, _reliefs.Count > 0 && _reliefs[0].Glow > 0);
+                Color tint;
+                _split = _reliefs.Count > 0 && _reliefs[0].Sky.Count > 0;
+                if (_split)
+                {
+                    // Sun and sky followed separately (see Lighting.SplitTint).
+                    Lighting.SplitTint(primary, Plugin.ToneMatch.Value, out _sunTint, out _skyGain);
+                    tint = Lighting.MixedTint(primary, _sunTint, _skyGain);
+                }
+                else tint = Lighting.Tint(primary, Plugin.ToneMatch.Value, _reliefs.Count > 0 && _reliefs[0].Glow > 0);
                 _tint = tint;
-                foreach (var rl in _reliefs)
-                    foreach (var m in rl.Materials) WindowMaterial.SetTint(m, tint);
-                UpdateLight(primary, c, realFront ? n : -n, tint, alpha, realFront);
+                PushTints();
+                // As strong as the picture is complete, not as the viewer is near: the dissolve is over at two thirds
+                // of the way in, and up to 0.9.22 the light kept growing until the portal's own activation range.
+                UpdateLight(primary, c, realFront ? n : -n, tint, Dissolve.Reveal(alpha), realFront);
             }
 
             _visible = true;
@@ -355,6 +381,57 @@ namespace LivePortals
             _pe = pe; _anchor0 = anchor0; _rB = rB; _target = target; _near = near; _far = far; _l = l; _r = r; _b = b; _t = t; _glass = glass; _realFront = realFront; _alphaNow = alpha;
             bool wantDump = _dumped != DumpRequest;
             WantsRender = !_hiddenForCapture && ShouldRender(main, pe, alpha, wantDump);
+        }
+
+        private void PushTints()
+        {
+            foreach (var rl in _reliefs)
+            {
+                foreach (var m in rl.Materials) WindowMaterial.SetTint(m, _split && rl.SunLit.Contains(m) ? _sunTint : _tint);
+                if (_split) foreach (var m in rl.Sky) WindowMaterial.SetAdditiveGain(m, _skyGain);
+                // Torchlight: the picture already holds it, dimmed with the rest, so only the dimmed-away part is
+                // added back: picture * t + torch * (1 - t), in light. Up to 0.9.22 it was added whole, which by day
+                // went unnoticed and in a night capture seen at night (t = 1) showed every torch-lit wall, and
+                // every surface that shows its own colour, twice as bright.
+                if (WindowMaterial.AdditiveScalable)
+                {
+                    Color b = _split ? _sunTint : _tint;
+                    var back = new Color(1f - Mathf.Pow(Mathf.Clamp01(b.r), 2.2f), 1f - Mathf.Pow(Mathf.Clamp01(b.g), 2.2f), 1f - Mathf.Pow(Mathf.Clamp01(b.b), 2.2f), 1f);
+                    foreach (var m in rl.Untinted) WindowMaterial.SetAdditiveGain(m, back);
+                }
+            }
+        }
+
+        /// <summary>
+        /// The flames alone, in front of a blacked-out copy of the picture (so pillars still hide them), into a small
+        /// texture of their own. The pane adds it on top of the picture several times over: flame pixels then
+        /// stand well above white in the game's frame, and its bloom glows around them as around a real fire.
+        /// The picture itself is 8 bits and tops out at white, which blooms like a sheet of paper.
+        /// </summary>
+        private void RenderBloom()
+        {
+            bool want = _bloomRt != null && _fire.Count > 0 && Dissolve.Reveal(_alphaNow) >= 0.999f && _eyeDist < 40f;
+            if (!want) { _bloomShown = false; return; }
+            var target = _cam.targetTexture; Color bg = _cam.backgroundColor;
+            try
+            {
+                foreach (var rl in _reliefs)
+                {
+                    foreach (var m in rl.Materials) WindowMaterial.SetTint(m, Color.black);
+                    foreach (var ar in rl.Additive) ar.enabled = false;
+                }
+                _cam.targetTexture = _bloomRt;
+                _cam.clearFlags = CameraClearFlags.SolidColor;
+                _cam.backgroundColor = Color.black;
+                _cam.Render();
+                _bloomShown = true;
+            }
+            finally
+            {
+                _cam.targetTexture = target;
+                _cam.backgroundColor = bg;
+                PushTints();
+            }
         }
 
         /// <summary>Redraw the window now, with the geometry of the last Update. Called by the scheduler.</summary>
@@ -395,6 +472,7 @@ namespace LivePortals
                 // The far side's flames, live: particles, drawn after the reliefs and hidden by whatever of them is nearer.
                 foreach (var fr in _fire) if (fr != null) fr.enabled = true;
                 _cam.Render();
+                RenderBloom();
             }
             finally
             {
@@ -415,7 +493,7 @@ namespace LivePortals
                 SaveWindow("final");
                 // The eye in the primary relief's own frame: what tools/LayerTest needs (EYES=x,y,z) to redraw this view.
                 Vector3 eyeLocal = Quaternion.Inverse(rB) * (pe - (anchor0 + rB * CaptureForward));
-                Plugin.Log.LogInfo($"LivePortals dump: window {Storage.Key(_nview.GetZDO().m_uid)} shows {Storage.Key(target)} ({_reliefs.Count} viewpoints), glass {glass}, front {realFront}, EYES={eyeLocal.x:0.###},{eyeLocal.y:0.###},{eyeLocal.z:0.###} near {near:0.###} far {far:0} frustum l {l:0.####} r {r:0.####} b {b:0.####} t {t:0.####} hdr {_cam.allowHDR} path {_cam.actualRenderingPath} depthBits {_rt.depth} format {_rt.format} material {WindowMaterial.Summary} pane {(_paneSolid ? "plug+sprite" : "sprite")} tint {_tint} (captured under sun {_set.Primary.Sun} ambient {_set.Primary.Ambient}, picture luminance {_set.Primary.AverageLuminance:0.000} of which local light {_set.Primary.AverageLocalLuminance:0.000}), local-light layers {(_reliefs.Count > 0 ? _reliefs[0].Glow : 0)} (additive shader {(WindowMaterial.AdditiveWorks ? "found" : "NOT found")}), live flame renderers {_fire.Count}{FireReport(pe)}");
+                Plugin.Log.LogInfo($"LivePortals dump: window {Storage.Key(_nview.GetZDO().m_uid)} shows {Storage.Key(target)} ({_reliefs.Count} viewpoints), glass {glass}, front {realFront}, EYES={eyeLocal.x:0.###},{eyeLocal.y:0.###},{eyeLocal.z:0.###} near {near:0.###} far {far:0} frustum l {l:0.####} r {r:0.####} b {b:0.####} t {t:0.####} hdr {_cam.allowHDR} path {_cam.actualRenderingPath} depthBits {_rt.depth} format {_rt.format} material {WindowMaterial.Summary} pane {(_paneSolid ? "plug+sprite" : "sprite")} tint {_tint}, sky-light layers {(_reliefs.Count > 0 ? _reliefs[0].Sky.Count : 0)} (sun tint {_sunTint}, sky gain {_skyGain}, sky-lit share {_set.Primary.AverageAmbientLuminance:0.000}) (captured under sun {_set.Primary.Sun} ambient {_set.Primary.Ambient}, picture luminance {_set.Primary.AverageLuminance:0.000} of which local light {_set.Primary.AverageLocalLuminance:0.000}), local-light layers {(_reliefs.Count > 0 ? _reliefs[0].Glow : 0)} (additive shader {(WindowMaterial.AdditiveWorks ? "found" : "NOT found")}), live flame renderers {_fire.Count}{FireReport(pe)}");
             }
         }
 
@@ -703,6 +781,22 @@ namespace LivePortals
                 // draws after it, over the picture.
                 _overlayMat.renderQueue = 2450;
                 _overlayRenderer.sharedMaterial = _overlayMat;
+                if (Plugin.FlameBloom.Value > 0f && WindowMaterial.AdditiveScalable)
+                {
+                    _bloomRt = new RenderTexture(256, 256, 24, RenderTextureFormat.ARGB32) { name = "LivePortals_FlameBloom", useMipMap = false };
+                    _bloomRt.Create();
+                    _bloom = new GameObject("LivePortals_FlameBloom");
+                    _bloom.transform.SetParent(_pane.transform, false);
+                    _bloom.AddComponent<MeshFilter>().sharedMesh = _pane.GetComponent<MeshFilter>().sharedMesh;
+                    _bloomRenderer = _bloom.AddComponent<MeshRenderer>();
+                    _bloomRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                    _bloomRenderer.receiveShadows = false;
+                    _bloomRenderer.enabled = false;
+                    _bloomMat = WindowMaterial.MakeAdditive(_bloomRt);
+                    WindowMaterial.SetAdditiveGain(_bloomMat, Color.white * Plugin.FlameBloom.Value); // the pane's mesh has one winding, like the reliefs' 
+                    _bloomMat.renderQueue = 2451; // right after the picture, still before the game's screen effects
+                    _bloomRenderer.sharedMaterial = _bloomMat;
+                }
             }
 
             var lightGo = new GameObject("LivePortals_Light");
@@ -739,6 +833,13 @@ namespace LivePortals
                     // a viewpoint the guesses, then what it saw, then its foreground.
                     int order = (_set.Captures.Count - 1 - k) * 3;
                     AddLayer(rl, f.transform, "Back", back, cap.Faces[i], false, Layers.CutoffCaptured, order + 1);
+                    bool sky = k == 0 && WindowMaterial.AdditiveScalable && cap.Ambients[i] != null;
+                    if (sky && back != null)
+                    {
+                        // What the sky alone lit, added back by as much as the ambient light outlasts the sun.
+                        rl.SunLit.Add(rl.Materials[rl.Materials.Count - 1]);
+                        AddLayer(rl, f.transform, "SkyLight", back, WindowMaterial.MakeAdditive(cap.Ambients[i]), false, rl.Sky);
+                    }
                     if (WindowMaterial.DepthWorks)
                     {
                         var filled = AddLayer(rl, f.transform, "BackFilled", back, cap.Faces[i], false, Layers.CutoffAll, order);
@@ -767,6 +868,11 @@ namespace LivePortals
                     if (cap.Fronts[i] != null && k == 0)
                     {
                         AddLayer(rl, f.transform, "Front", cap.Front[i], cap.Fronts[i], false, 0.5f, order + 2);
+                        if (sky && cap.AmbientsFront[i] != null && cap.Front[i] != null)
+                        {
+                            rl.SunLit.Add(rl.Materials[rl.Materials.Count - 1]);
+                            AddLayer(rl, f.transform, "SkyLightFront", cap.Front[i], WindowMaterial.MakeAdditive(cap.AmbientsFront[i]), false, rl.Sky);
+                        }
                         if (cap.LocalsFront[i] != null && WindowMaterial.AdditiveWorks)
                             AddLayer(rl, f.transform, "GlowFront", cap.Front[i], WindowMaterial.MakeAdditive(cap.LocalsFront[i]), false, rl.Untinted);
                     }
@@ -823,6 +929,7 @@ namespace LivePortals
             mr.receiveShadows = false;
             mr.enabled = false;
             (under ? rl.Under : rl.Renderers).Add(mr);
+            if (owner != rl.Materials) rl.Additive.Add(mr);
             owner.Add(mat);
             return go.transform;
         }
@@ -833,6 +940,7 @@ namespace LivePortals
             {
                 foreach (var m in rl.Materials) Destroy(m);
                 foreach (var m in rl.Untinted) Destroy(m);
+                foreach (var m in rl.Sky) Destroy(m);
                 foreach (var t in rl.Textures) Destroy(t);
                 if (rl.Anchor != null) Destroy(rl.Anchor);
             }
@@ -877,8 +985,14 @@ namespace LivePortals
         private void ApplyVisibility()
         {
             bool on = _visible && !_hiddenForCapture;
-            if (_paneRenderer != null) _paneRenderer.enabled = on;
+            if (_paneRenderer != null) _paneRenderer.enabled = on && !(DiagPlugOff && _overlay != null);
+            if (_overlayMat != null && _overlayMat.renderQueue != DiagQueue)
+            {
+                _overlayMat.renderQueue = DiagQueue;
+                if (_bloomMat != null) _bloomMat.renderQueue = DiagQueue + 1;
+            }
             if (_overlayRenderer != null) _overlayRenderer.enabled = on;
+            if (_bloomRenderer != null) _bloomRenderer.enabled = on && _bloomShown;
             if (_light != null && !on) _light.enabled = false;
             // Out of sight the flames stop simulating altogether.
             if (_fireHolder != null && _fireHolder.activeSelf != on) _fireHolder.SetActive(on);
@@ -894,6 +1008,9 @@ namespace LivePortals
             if (_paneMat != null) Destroy(_paneMat);
             if (_overlayMat != null) Destroy(_overlayMat);
             if (_overlayMesh != null) Destroy(_overlayMesh);
+            if (_bloomMat != null) Destroy(_bloomMat);
+            if (_bloomRt != null) { _bloomRt.Release(); Destroy(_bloomRt); }
+            _bloom = null; _bloomRenderer = null; _bloomMat = null; _bloomRt = null; _bloomShown = false;
             _overlay = null; _overlayRenderer = null; _overlayMat = null; _overlayMesh = null;
             if (_rt != null) { _rt.Release(); Destroy(_rt); }
             _built = false;
@@ -926,15 +1043,18 @@ namespace LivePortals
                 uvs[i + 1] = new Vector2(x + 0.5f, y + 0.5f);
                 cols[i + 1] = Color.white;
             }
-            var tris = new int[segments * 6];
+            // One face, toward -z, with normals that say so; Refresh turns it to the viewer.
+            var tris = new int[segments * 3];
+            var normals = new Vector3[segments + 1];
+            normals[0] = Vector3.back;
             for (int i = 0; i < segments; i++)
             {
                 int a = i + 1, b = (i + 1) % segments + 1;
-                tris[i * 6] = 0; tris[i * 6 + 1] = b; tris[i * 6 + 2] = a;
-                tris[i * 6 + 3] = 0; tris[i * 6 + 4] = a; tris[i * 6 + 5] = b;
+                tris[i * 3] = 0; tris[i * 3 + 1] = b; tris[i * 3 + 2] = a;
+                normals[i + 1] = Vector3.back;
             }
             m.vertices = verts; m.uv = uvs; m.colors = cols; m.triangles = tris;
-            m.RecalculateNormals();
+            m.normals = normals;
             m.RecalculateBounds();
             return m;
         }
@@ -946,8 +1066,8 @@ namespace LivePortals
             m.vertices = new[] { new Vector3(-0.5f, -0.5f, 0f), new Vector3(0.5f, -0.5f, 0f), new Vector3(0.5f, 0.5f, 0f), new Vector3(-0.5f, 0.5f, 0f) };
             m.uv = new[] { new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(1f, 1f), new Vector2(0f, 1f) };
             m.colors = new[] { Color.white, Color.white, Color.white, Color.white };
-            m.triangles = new[] { 0, 2, 1, 0, 3, 2, 0, 1, 2, 0, 2, 3 };
-            m.RecalculateNormals();
+            m.triangles = new[] { 0, 2, 1, 0, 3, 2 }; // one face, toward -z; Refresh turns it to the viewer
+            m.normals = new[] { Vector3.back, Vector3.back, Vector3.back, Vector3.back };
             m.RecalculateBounds();
             return m;
         }

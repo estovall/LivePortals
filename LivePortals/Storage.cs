@@ -72,6 +72,8 @@ namespace LivePortals
         internal static string FacePath(string dir, string key, int p, int i) => Path.Combine(dir, key + "_p" + p + "_" + i + ".png");
         internal static string FrontPath(string dir, string key, int p, int i) => Path.Combine(dir, key + "_p" + p + "_f" + i + ".png");
         internal static string LocalPath(string dir, string key, int p, int i) => Path.Combine(dir, key + "_p" + p + "_l" + i + ".png");
+        internal static string AmbientPath(string dir, string key, int p, int i) => Path.Combine(dir, key + "_p" + p + "_a" + i + ".png");
+        internal static string AmbientFrontPath(string dir, string key, int p, int i) => Path.Combine(dir, key + "_p" + p + "_af" + i + ".png");
         internal static string LocalFrontPath(string dir, string key, int p, int i) => Path.Combine(dir, key + "_p" + p + "_lf" + i + ".png");
         internal static string GridPath(string dir, string key, int p) => Path.Combine(dir, key + "_p" + p + ".bin");
         internal static string MetaPath(string dir, string key) => Path.Combine(dir, key + ".txt");
@@ -127,6 +129,10 @@ namespace LivePortals
                 File.WriteAllBytes(LocalPath(job.Dir, job.Key, p, i), ImageConversion.EncodeArrayToPNG(face.Local, GraphicsFormat.R8G8B8A8_SRGB, (uint)face.LocalRes, (uint)face.LocalRes));
             if (face.LocalFront != null && p == 0)
                 File.WriteAllBytes(LocalFrontPath(job.Dir, job.Key, p, i), ImageConversion.EncodeArrayToPNG(face.LocalFront, GraphicsFormat.R8G8B8A8_SRGB, (uint)face.LocalRes, (uint)face.LocalRes));
+            if (face.Ambient != null && p == 0)
+                File.WriteAllBytes(AmbientPath(job.Dir, job.Key, p, i), ImageConversion.EncodeArrayToPNG(face.Ambient, GraphicsFormat.R8G8B8A8_SRGB, (uint)res, (uint)res));
+            if (face.AmbientFront != null && p == 0)
+                File.WriteAllBytes(AmbientFrontPath(job.Dir, job.Key, p, i), ImageConversion.EncodeArrayToPNG(face.AmbientFront, GraphicsFormat.R8G8B8A8_SRGB, (uint)res, (uint)res));
         }
 
         internal static void SavePoint(Job job, int p, RawPoint pt, FaceGrids[] grids)
@@ -156,6 +162,7 @@ namespace LivePortals
             job.Lines.Add(pre + "dayFraction=" + pt.DayFraction.ToString("R", CultureInfo.InvariantCulture));
             job.Lines.Add(pre + "avgLum=" + pt.AverageLuminance.ToString("R", CultureInfo.InvariantCulture));
             job.Lines.Add(pre + "avgLocalLum=" + pt.AverageLocalLuminance.ToString("R", CultureInfo.InvariantCulture));
+            job.Lines.Add(pre + "avgAmbientLum=" + pt.AverageAmbientLuminance.ToString("R", CultureInfo.InvariantCulture));
             job.Lines.Add(pre + "avgColor=" + C(pt.AverageColor));
         }
 

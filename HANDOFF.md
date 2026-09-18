@@ -1,7 +1,7 @@
 # Pick-up notes for LivePortals
 
-Last updated 2026-09-18 on Max's second PC. `main` is the current dev state, **0.9.21**. Published on Hexium as
-`Max/Immersive_Portals` (0.9.20 is the latest there). Max tests each build and reports with screenshots; on the second
+Last updated 2026-09-18 on Max's second PC. `main` is the current dev state, **0.9.22**. Published on Hexium as
+`Max/Immersive_Portals` (0.9.22 is the latest there). Max tests each build and reports with screenshots; on the second
 PC the mod runs from the game folder's own `BepInEx\plugins` (world "sails"), on the home PC from Gale as a Hexium
 package. Captures live in `AppData\LocalLow\IronGate\Valheim\LivePortals\<world>`.
 
@@ -12,11 +12,17 @@ package. Captures live in `AppData\LocalLow\IronGate\Valheim\LivePortals\<world>
   8-bit window texture; the stone portal's pane; performance after 0.9.4 ("much better"); captures spread over frames;
   the pane as black depth plug + sprite at renderQueue 2450 (Mistlands mist covers it); 0.9.21 live fire and the
   fire-aware portal light (items 44, 45).
-- **Built but not yet seen in game:** the blocky dissolve of 0.9.16; the swirl
+- **Confirmed in game on 2026-09-18 (0.9.22):** live fire incl. campfires; the sky-light split ("night mode looks
+  much better"); the single-sided pane with real normals (the black stone-portal window at night was the game's
+  ambient occlusion reading a disc without normals); the full-resolution sky-light layer (no outlines round
+  branches); mist covering the window; the fire-aware portal light.
+- **Built but not yet seen in game:** other players hidden from captures (item 51, needs a second player); the
+  flame bloom at 4 (Max asked for more than 2, has not commented since); the torchlight layer at 1 - t (item 49);
+  the blocky dissolve of 0.9.16; the swirl
   drawn over the picture (0.9.17); the 0.9.5 pre-cull refresh (the "tiny delay").
-- **Open:** night: Max (2026-09-18, on 0.9.20): "when its night the portal images look extremely dark even if the
-  other side of the portal is a well lit room". Cause NOT established (item 44 lists the candidates and what the
-  numpad-5 line now logs to tell them apart). Older: the sky through a window is pinker than the real sky; a wall
+- **Open:** the sky mask is patchy in mist (item 49); link embeds show the old icon (not ours to fix: Hexium's
+  og:image is a fixed URL, `cdn.hexium.gg/upload/1300/icon.png`, cached for a week; the file there is the new
+  artwork). The numpad + - * / diagnostics of item 47 are still in, behind `DebugLog`. Older: the sky through a window is pinker than the real sky; a wall
   very close behind a portal stays soft.
 - **How to work on this without the game:** `tools/LayerTest` redraws stored captures and numpad-5 dumps offline. Ask
   for a numpad-5 dump plus a screenshot instead of guessing: the dump is what the window holds, the screenshot is
@@ -434,6 +440,76 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     flame copies. A later "0 live flame effects" at the same portal was right: the fire had burnt out.
     **Confirmed by Max on the second build** (screenshot + "both look right"): torch flames in place from every angle,
     the portal lights the floor in front of it. Log: 3 torches = 3 effects, 6 particle renderers, 81 particles alive.
+46. 0.9.22 (2026-09-18). Max's night example: stone portal, pane pitch black, numpad-5 dump of the minute before
+    fine (mean 31,45,44 at tint 0.46; the capture's mean is 71,86,89). Not the pane, not the missing glow: the
+    tint. Max: "its like night just straight darkens all portals ... there's ambient light that isnt being
+    represented", and, with a screenshot of real torches in tall grass under heavy bloom, "maybe the lack of bloom
+    is a part of it". (a) **Sky light split**: `Capture.RenderLocalLight(rig, keepSky: true)` renders each face of
+    the primary viewpoint once more through the colour camera with only the directional lights (and `_SunColor`)
+    off (slot 7, `RawNoSun`); `Compose` makes `RawFace.Ambient` = noSun - local in linear light, capped by the
+    picture; `Layers` halves it per layer (`_p0_a<i>.png`, `_p0_af<i>.png`); meta `avgAmbientLum`. Window: additive
+    "SkyLight"/"SkyLightFront" layers on the primary Back/Front meshes (`Relief.Sky`), their strength set every
+    tint tick by `WindowMaterial.SetAdditiveGain` to `ra^2.2 - sunTint^2.2` per channel (`Lighting.SplitTint`);
+    the materials under them (`Relief.SunLit`) take the sun-only tint; every other material (filled sheet,
+    secondary viewpoints, skirts, shell) takes `Lighting.MixedTint` = the picture's own sun/sky/torch shares
+    followed to now. Needs `WindowMaterial.AdditiveScalable`. (b) **Additive calibration**: the self-test's quad
+    has both windings and `Legacy Shaders/Particles/Additive` culls nothing, so grey came back 241 (4x) and the
+    gain 0.53 was right only for double-wound meshes; the reliefs are single-wound (Custom/Creature has a cull
+    switch), so the torchlight layer ran at half light since 0.9.8. The test now also measures one winding
+    (`_addGain` for reliefs, `_addGainDouble` for the pane). (c) **Flame bloom**: `RenderBloom` = a third render,
+    relief materials tinted black, additive layers off, flames on, into a 256 px texture; a second disc on the
+    pane (`Particles/Additive`, queue 2451, gain `FlameBloom` = 2) adds it over the picture so flame pixels stand
+    above white in the game's HDR frame. Only at full dissolve and within 40 m. **All untested.** Watch: the
+    self-test line's "(one winding N)" (expect about 174 against 241); the dump line's "sky-light layers 6",
+    "sun tint", "sky gain", "sky-lit share"; `_a` PNGs should look like the scene on an overcast day without
+    torches; night through a fresh capture should match the darkness of the viewer's own surroundings.
+    Seen and left alone: the black depth plug's disc has both windings on shared vertices, so `RecalculateNormals`
+    gives it zero normals.
+47. 0.9.22 in game (2026-09-18). Works: campfire flames, the one-winding calibration (grey 241 / one winding 178,
+    gain 0.72), sky-light layers present, the wooden portal's window bright at night. **Still black: the stone
+    portal outdoors at night, and it is NOT the tint**: its dump is bright (the moon's directional light is
+    stronger than the dusk sun the capture was taken under: sun tint 1.2 to 1.4, sky gain 0) while on screen the
+    pane is black with only the picture's sky faintly showing at the top. So something between the window texture
+    and the screen darkens the queue-2450 sprite there and not at the wooden portal indoors the same night.
+    Suspects: an opaque-stage screen effect (item 41's warning), ambient occlusion on the plug (its disc has
+    zero normals, see item 46), the plug itself, or something of the stone portal's own drawn over the ring.
+    Second build of 0.9.22 adds keys to tell them apart live: numpad + (picture queue 2450/2950), numpad - (plug
+    off), numpad * (Amplify Occlusion off), numpad / (post-processing off). Also: `FlameBloom` default 4 (was 2,
+    ConfigVersion 4 migrates; Max: "the bloom needs cranking up"), the bloom pass and the spill light now go by
+    `Dissolve.Reveal(alpha)` (they were gated on alpha = 1, i.e. only within the portal's activation range: Max saw
+    the light "get brighter the closer you walk up to it", and the bloom only ever showed within 5 m).
+48. The keys' answer (2026-09-18): numpad + (picture at 2950) brings the stone portal's picture back, numpad *
+    (Amplify Occlusion off) brings it back "perhaps a little better". So the game's ambient occlusion multiplies
+    the plug's pixels, and the queue-2450 picture on them, to black. Third build of 0.9.22: the pane's quad and
+    disc have ONE winding (toward -z) with explicit normals, and `Refresh` gives the pane a z scale of -1 from
+    the front so that face and its normals always point at the viewer (children offsets times sz). Theory: the
+    old disc's two windings on shared vertices gave `RecalculateNormals` zero vectors, garbage in the G-buffer.
+    Not explained: why the wooden portal indoors was fine the same night with the same disc. If the stone pane
+    is still black with this build, the normals were not it (the ring is 4 m deep: real cavity occlusion?) and
+    the fallback is the picture at 2950 plus another answer for the mist. The four keys are still in.
+49. Third build in game (2026-09-18): Max: "the night mode looks much better" (the single-winding pane with real
+    normals: the stone portal's picture is no longer black; confirmed). His next screenshot: a stone portal whose
+    pane is a flat blue-grey with a straight seam, "check for anything on this capture". The capture (1_334448,
+    a foggy night by a campfire, seen at 45 degrees) is sound; the slabs come from the additive layers. The
+    "torches only" render still shows everything that has a colour of its own: the haze dome, baked cloud, the
+    sea. Those pixels were added to the picture a second time, on the primary viewpoint's sheet only, hence the
+    straight edges against the far shell and the live sky. Fourth build: (a) `Compose` blanks the local layer
+    and sets the sky layer to the picture wherever depth is at the end of the range; (b) the torchlight layer is
+    no longer added whole: `PushTints` sets its gain to 1 - t^2.2 (t = the tint of the picture under it), i.e.
+    picture * t + torch * (1 - t); before, a night capture seen at night showed torch-lit walls at double light.
+    Still open from this capture: the sky mask is patchy in mist (the dome is about 90 % opaque, the diff > 60
+    test flips blob by blob and face by face), so baked and live sky meet along hard edges. **Untested.**
+50. Fourth build in game (2026-09-18): the mist covers the window correctly (Max's screenshot: nothing but mist);
+    "the trees all have this outline now" at dusk (dump 133328: sun tint 0.36, sky gain 0.6, so most of the
+    picture's light comes from the sky-light layer). The layer was stored at half resolution like the torchlight;
+    but torchlight is smooth and sky light is the picture itself in another light, so its soft edges against the
+    picture's sharp ones gave every branch a pale fringe. Fifth build: `Layers.OneLayer` keeps the sky-light
+    layers at the picture's resolution (`_a`, `_af` PNGs are now 768 px). Needs a recapture. **Untested.**
+51. Fifth build (2026-09-18): Max: "much better" (the full-resolution sky-light layer: no more outlines;
+    confirmed). Request: "lets also not capture other players": travelling with a friend left the friend standing
+    in front of the ring in the picture. `HideForCapture` now hides every `Player.GetAllPlayers()` entry
+    (renderers, lights, colliders; a held torch's flame and light go too), not only the local one. Sixth build.
+    **Untested** (needs a second player).
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

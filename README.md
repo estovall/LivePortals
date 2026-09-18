@@ -53,7 +53,7 @@ of faces per frame and finished on a background thread, so a trip does not stall
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `RangeMultiplier` / `FullMultiplier` | 4 / 1 | Where the window starts to dissolve in and where it is complete, as multiples of the portal's activation range (4 = 20 m in vanilla) |
-| `PaneWidth` / `PaneHeight` / `RingCenterOffset` / `PaneForwardOffset` | 2.7 / 2.8 / -0.35 / 0 | The pane size, a vertical nudge of the ring centre (found from the portal model), and a forward nudge, metres. Numpad keys tune these in game (see `TuneKeys`) |
+| `PaneWidth` / `PaneHeight` / `RingCenterOffset` / `PaneForwardOffset` | 2.7 / 2.8 / -0.35 / 0 | The pane size, a vertical nudge of the ring centre (found from the portal model), and a forward nudge, metres. With `TuneKeys` (section Debug, off by default) numpad keys tune these in game |
 | `OtherPaneWidth` / `OtherPaneHeight` / `OtherCenterHeight` | 0 = measured | The pane of every portal that is not the wooden one (the stone portal is measured from its colliders) |
 | `CaptureResolution` / `CaptureViewpoints` | 768 / 4 | Pixels per captured face, and how many viewpoints each portal is captured from (centre, above, right, left, below) |
 | `MeshGrid` | 128 | Cells per edge of each face's relief mesh. Silhouettes are cut per pixel regardless; this is how finely surfaces follow the captured depth |
@@ -63,6 +63,8 @@ of faces per frame and finished on a background thread, so a trip does not stall
 | `LiveSky` | on | Draw the current sky behind the capture |
 | `ToneMatch` | 1 | How strongly captures follow the current lighting (0 = as captured) |
 | `CaptureFog` | on | Capture with the game's own distance fog and ambient occlusion |
+| `CaptureSkyLight` | on | Capture the sky-lit part of the picture separately so night dims it by the ambient light, not by the sun (needs a fresh capture) |
+| `FlameBloom` | 2 | How far above white the window's flames are pushed so the game's bloom glows around them; 0 = off |
 | `LiveFire` / `LiveFireMax` | on / 32 | Fires and torches somebody built are left out of the capture and the window plays the game's own flame effects in their places (needs a fresh capture) |
 | `CaptureLocalLight` / `CaptureFlames` | on / on | Keep torchlight and firelight untinted at night (a second capture per face with the sun off); keep the flames of torches and fires in the capture |
 | `GrassGap` | 0.75 m | Grass this close to the far portal's centre is not drawn in the window |

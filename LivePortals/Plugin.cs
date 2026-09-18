@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "Immersive Portals";
-        public const string VERSION = "0.9.21";
+        public const string VERSION = "0.9.22";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -67,9 +67,11 @@ namespace LivePortals
         internal static ConfigEntry<float> CaptureExposure;
         internal static ConfigEntry<bool> CaptureFog;
         internal static ConfigEntry<bool> CaptureLocalLight;
+        internal static ConfigEntry<bool> CaptureSkyLight;
         internal static ConfigEntry<bool> CaptureFlames;
         internal static ConfigEntry<bool> LiveFire;
         internal static ConfigEntry<int> LiveFireMax;
+        internal static ConfigEntry<float> FlameBloom;
         internal static ConfigEntry<bool> CaptureFlameDepth;
         internal static ConfigEntry<float> FlameMaxSize;
         internal static ConfigEntry<float> GrassGap;
@@ -170,8 +172,10 @@ namespace LivePortals
             HideSwirl = Config.Bind("2. Window", "HideSwirl", false, "Switch the game's own swirl in the ring off while the window shows. Off: the swirl plays over the picture as in vanilla.");
             // 0.9.13 to 0.9.16 hid the swirl by default (a sorting problem since solved another way); files from then say true.
             if (configVersion.Value < 3) { HideSwirl.Value = false; configVersion.Value = 3; }
-            TuneKeys = Config.Bind("2. Window", "TuneKeys", true,
-                "Numpad tuning while in game: 8/2 ring height, 4/6 forward offset, 7/9 pane width, 1/3 pane height, . (period) toggles the glass test, 5 prints, saves, and dumps what every visible window drew (BepInEx/config/LivePortals/debug), 0 captures the nearest portal now. Values are saved to this file.");
+            // In a section of its own and off: up to 0.9.21 the numpad keys were on for everybody ("2. Window"), and
+            // a stray numpad 0 or 5 took captures and wrote dumps. The old entry is simply no longer read.
+            TuneKeys = Config.Bind("6. Debug", "TuneKeys", false,
+                "Debug: numpad keys while in game: 8/2 ring height, 4/6 forward offset, 7/9 pane width, 1/3 pane height, . (period) toggles the glass test, 5 prints, saves, and dumps what every visible window drew (BepInEx/config/LivePortals/debug), 0 captures the nearest portal now. Values are saved to this file.");
             GlassTest = Config.Bind("2. Window", "GlassTest", false,
                 "Diagnostic: each window shows its OWN portal's capture with no portal mapping, so the ring should look like a pane of glass onto the real surroundings. Capture with numpad 0 first.");
             ArrivalViewBothSides = Config.Bind("2. Window", "ArrivalViewBothSides", false,
@@ -205,6 +209,8 @@ namespace LivePortals
                 "Capture with the game's own distance fog and ambient occlusion (its post-processing stack, everything else in it switched off). Off = raw geometry colours, which look too crisp and bright at a distance.");
             CaptureLocalLight = Config.Bind("4. Look", "CaptureLocalLight", true,
                 "Also capture what torches, fires and glowing things alone contribute, and show that part untinted: torchlight in the window then stays as bright at night as by day, while sunlit parts still follow the time of day.");
+            CaptureSkyLight = Config.Bind("4. Look", "CaptureSkyLight", true,
+                "Also capture what the sky's light alone contributes (one more render per face of the main viewpoint). The window then dims the sunlit part of the picture with the sun and the sky-lit part with the ambient light, which at night falls far less: shaded ground, forests and interiors no longer go black at dusk. Needs a fresh capture.");
             CaptureFlames = Config.Bind("4. Look", "CaptureFlames", true,
                 "Keep the flames of torches and fires in the capture (other particle effects, like smoke and weather, are left out).");
             LiveFire = Config.Bind("4. Look", "LiveFire", true,
@@ -212,6 +218,11 @@ namespace LivePortals
             LiveFireMax = Config.Bind("5. Performance", "LiveFireMax", 32,
                 new ConfigDescription("Most flame effects one window plays (the nearest to the far portal are kept).",
                     new AcceptableValueRange<int>(0, 200)));
+            FlameBloom = Config.Bind("4. Look", "FlameBloom", 4f,
+                new ConfigDescription("How far above white the flames in a window are pushed, so the game's bloom glows around them as it does around real fires (the window's picture itself cannot hold anything brighter than white). 0 = off. Costs a third, small render per redraw of a window with fires in it.",
+                    new AcceptableValueRange<float>(0f, 6f)));
+            // 0.9.22 shipped 2; Max: "the bloom needs cranking up".
+            if (configVersion.Value < 4) { if (Mathf.Approximately(FlameBloom.Value, 2f)) FlameBloom.Value = 4f; configVersion.Value = 4; }
             FlameMaxSize = Config.Bind("4. Look", "FlameMaxSize", 1f,
                 new ConfigDescription("Largest flame effect kept in the capture, metres across. Torch flames are well under a metre; a hearth or bonfire is bigger and, painted onto the wall behind it, comes out as stretched copies, so it is left out (its light stays).",
                     new AcceptableValueRange<float>(0.2f, 5f)));
@@ -241,7 +252,7 @@ namespace LivePortals
                 new ConfigDescription("Most grass tufts drawn through a window (the nearest to the far portal). 0 = no live grass.",
                     new AcceptableValueRange<int>(0, 60000)));
             PerfLog = Config.Bind("5. Performance", "PerfLog", false, "Log each window's render time every 10 s.");
-            DebugLog = Config.Bind("5. Performance", "DebugLog", false, "Verbose logging of captures and windows.");
+            DebugLog = Config.Bind("6. Debug", "DebugLog", false, "Verbose logging of captures and windows. With TuneKeys it also enables numpad + - * / (diagnostics that switch the picture's draw order, the depth plug, and the game's ambient occlusion and post-processing).");
 
             _harmony = new Harmony(GUID);
             Storage.Configure(CaptureFolder.Value, Application.persistentDataPath, Paths.ConfigPath);
@@ -258,6 +269,12 @@ namespace LivePortals
         {
             Camera.onPreCull -= OnCameraPreCull;
             _harmony?.UnpatchSelf();
+        }
+
+        private static void Say(Player player, string what)
+        {
+            player.Message(MessageHud.MessageType.Center, "LivePortals: " + what);
+            Log.LogInfo("LivePortals diag: " + what);
         }
 
         internal static void Dbg(string msg)
@@ -407,6 +424,32 @@ namespace LivePortals
                 Config.Save();
                 player.Message(MessageHud.MessageType.Center, "LivePortals: glass test " + (GlassTest.Value ? "ON (own capture, no mapping)" : "OFF"));
                 Log.LogInfo("LivePortals: glass test " + GlassTest.Value);
+            }
+            // Diagnostics for the pane that is black on screen at night while its picture is bright (0.9.22, the
+            // stone portal outdoors; the wooden one indoors is fine the same night). Each key switches one suspect.
+            // Only with DebugLog on: two of them switch effects of the game itself.
+            if (!DebugLog.Value) { }
+            else if (ZInput.GetKeyDown(KeyCode.KeypadPlus, false))
+            {
+                PortalWindow.DiagQueue = PortalWindow.DiagQueue == 2450 ? 2950 : 2450;
+                Say(player, "picture drawn " + (PortalWindow.DiagQueue == 2450 ? "BEFORE the game's opaque-stage effects (2450, normal)" : "AFTER them, with the transparent things (2950)"));
+            }
+            else if (ZInput.GetKeyDown(KeyCode.KeypadMinus, false))
+            {
+                PortalWindow.DiagPlugOff = !PortalWindow.DiagPlugOff;
+                Say(player, "black depth plug behind the picture " + (PortalWindow.DiagPlugOff ? "OFF" : "ON (normal)"));
+            }
+            else if (ZInput.GetKeyDown(KeyCode.KeypadMultiply, false))
+            {
+                var ao = GameCamera.instance != null ? GameCamera.instance.m_camera.GetComponent<AmplifyOcclusionEffect>() : null;
+                if (ao != null) { ao.enabled = !ao.enabled; Say(player, "game ambient occlusion " + (ao.enabled ? "ON (normal)" : "OFF")); }
+                else Say(player, "no ambient occlusion effect on the game camera");
+            }
+            else if (ZInput.GetKeyDown(KeyCode.KeypadDivide, false))
+            {
+                var pp = GameCamera.instance != null ? GameCamera.instance.m_camera.GetComponent<UnityEngine.PostProcessing.PostProcessingBehaviour>() : null;
+                if (pp != null) { pp.enabled = !pp.enabled; Say(player, "game post-processing " + (pp.enabled ? "ON (normal)" : "OFF")); }
+                else Say(player, "no post-processing on the game camera");
             }
             bool print = ZInput.GetKeyDown(KeyCode.Keypad5, false);
             if (print) PortalWindow.DumpRequest++;

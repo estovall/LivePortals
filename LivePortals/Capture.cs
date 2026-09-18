@@ -18,6 +18,8 @@ namespace LivePortals
         public Texture2D[] Locals = new Texture2D[6];
         /// <summary>The same for the foreground layer (the flames themselves, mostly).</summary>
         public Texture2D[] LocalsFront = new Texture2D[6];
+        /// <summary>What the sky's light alone (ambient, no sun, no torches) contributes, background and foreground; added on top scaled by how the ambient light has changed. Null when not captured.</summary>
+        public Texture2D[] Ambients = new Texture2D[6], AmbientsFront = new Texture2D[6];
         /// <summary>Relief meshes per face, built by the loader from the grids; the reliefs share them and this owns them.</summary>
         public Mesh[] Back = new Mesh[6], Skirt = new Mesh[6], Shell = new Mesh[6], Front = new Mesh[6];
         /// <summary>Nodes per edge of the depth grids; cells per edge is Grid - 1.</summary>
@@ -31,6 +33,7 @@ namespace LivePortals
         public long TakenAt;     // unix seconds
         public float AverageLuminance = 0.3f; // of the forward face, geometry only, for the spill light
         public float AverageLocalLuminance;   // the part of it that is not sunlight, and so does not follow the time of day
+        public float AverageAmbientLuminance = -1f; // the part of it lit by the sky alone; -1 when not captured
         public Color AverageColor = Color.white;
 
         public void Destroy()
@@ -39,6 +42,7 @@ namespace LivePortals
             for (int i = 0; i < Fronts.Length; i++) if (Fronts[i] != null) Object.Destroy(Fronts[i]);
             for (int i = 0; i < Locals.Length; i++) if (Locals[i] != null) Object.Destroy(Locals[i]);
             for (int i = 0; i < LocalsFront.Length; i++) if (LocalsFront[i] != null) Object.Destroy(LocalsFront[i]);
+            for (int i = 0; i < 6; i++) { if (Ambients[i] != null) Object.Destroy(Ambients[i]); if (AmbientsFront[i] != null) Object.Destroy(AmbientsFront[i]); }
             for (int i = 0; i < 6; i++)
             {
                 if (Back[i] != null) Object.Destroy(Back[i]);
@@ -147,6 +151,7 @@ namespace LivePortals
     {
         public Color32[] Col;   // alpha 255 where something was drawn, 0 on sky (rgb is the fog colour there)
         public Color32[] Local; // the same view lit by nothing but local lights and emission; null when not captured
+        public Color32[] Ambient; // the same view lit by nothing but the sky (ambient light), fog included; null when not captured
         public float[] FlameDepth; // per pixel, the depth of the fire whose flame this pixel shows, else 0; null when there are no flames
         public bool[] Sky;
         public float[] Depth;   // view depth in metres per pixel, DepthRange on sky and beyond
@@ -163,6 +168,7 @@ namespace LivePortals
         public float DayFraction;
         public float AverageLuminance = 0.3f;
         public float AverageLocalLuminance;
+        public float AverageAmbientLuminance = -1f;
         public Color AverageColor = Color.white;
         public float SkyFraction, DiffFraction, MedianDepth; // of the forward face, for the log
     }
@@ -474,8 +480,17 @@ namespace LivePortals
                 //     fade with the sun, and the flames (which are emissive) survive the night.
                 if (Plugin.CaptureLocalLight.Value)
                 {
-                    RenderLocalLight(rig);
+                    RenderLocalLight(rig, false);
                     Read(rig.A, rig.TexA, rig.Res, f, 4);
+                }
+                // 1c. And with only the sun off: what the sky lights (plus 1b). At night the sun's share of the
+                //     picture all but goes while the sky's share only dims to a third or so; dimmed together by one
+                //     number they left a forest floor pitch black in the window at an hour when the real one is
+                //     plainly visible. Primary viewpoint only, like the torchlight layer.
+                if (Plugin.CaptureSkyLight.Value && f.PointIndex == 0)
+                {
+                    RenderLocalLight(rig, true);
+                    Read(rig.Color, rig.TexC, rig.Res, f, 7);
                 }
                 // 2. Sky mask: no fog, cleared black and then white. Where the two differ, nothing (or only
                 //    something thin, like the haze dome the game hangs over the whole sky) was drawn, and if
@@ -537,10 +552,14 @@ namespace LivePortals
         private static readonly int AmbientId = Shader.PropertyToID("_AmbientColor"), SunColorId = Shader.PropertyToID("_SunColor"), SunFogId = Shader.PropertyToID("_SunFogColor");
         private static readonly List<Light> _suns = new List<Light>();
 
-        /// <summary>The colour of the scene lit by local lights and emission alone, into rig.A. Sun, sky light, reflections and fog are switched off for the render and put back after.</summary>
-        private static void RenderLocalLight(Rig rig)
+        /// <summary>
+        /// The colour of the scene lit by local lights and emission alone, into rig.A: sun, sky light, reflections and
+        /// fog are switched off for the render and put back after. With keepSky only the sun goes, and the render is the
+        /// colour camera's (fog and ambient occlusion as in the picture itself), into rig.Color.
+        /// </summary>
+        private static void RenderLocalLight(Rig rig, bool keepSky)
         {
-            var cam = rig.Cam;
+            var cam = keepSky ? rig.ColorCam : rig.Cam;
             _suns.Clear();
             foreach (var l in Object.FindObjectsByType<Light>(FindObjectsSortMode.None))
                 if (l.enabled && l.type == LightType.Directional) { l.enabled = false; _suns.Add(l); }
@@ -549,18 +568,27 @@ namespace LivePortals
             bool fog = RenderSettings.fog;
             try
             {
-                RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
-                RenderSettings.ambientLight = Color.black;
-                RenderSettings.ambientIntensity = 0f;
-                RenderSettings.reflectionIntensity = 0f;
-                Shader.SetGlobalColor(AmbientId, Color.black);
                 Shader.SetGlobalColor(SunColorId, Color.black);
-                Shader.SetGlobalColor(SunFogId, Color.black);
-                RenderSettings.fog = false;
-                cam.allowHDR = rig.Hdr; cam.allowMSAA = rig.Msaa;
-                cam.depthTextureMode = DepthTextureMode.None;
-                cam.backgroundColor = Color.black;
-                cam.targetTexture = rig.A; cam.Render(); cam.targetTexture = null;
+                if (keepSky)
+                {
+                    RenderSettings.fog = rig.FogOn;
+                    cam.backgroundColor = RenderSettings.fogColor;
+                    cam.targetTexture = rig.Color; cam.Render(); cam.targetTexture = null;
+                }
+                else
+                {
+                    RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
+                    RenderSettings.ambientLight = Color.black;
+                    RenderSettings.ambientIntensity = 0f;
+                    RenderSettings.reflectionIntensity = 0f;
+                    Shader.SetGlobalColor(AmbientId, Color.black);
+                    Shader.SetGlobalColor(SunFogId, Color.black);
+                    RenderSettings.fog = false;
+                    cam.allowHDR = rig.Hdr; cam.allowMSAA = rig.Msaa;
+                    cam.depthTextureMode = DepthTextureMode.None;
+                    cam.backgroundColor = Color.black;
+                    cam.targetTexture = rig.A; cam.Render(); cam.targetTexture = null;
+                }
             }
             finally
             {
@@ -600,13 +628,16 @@ namespace LivePortals
                 FlipRows(f.RawCol, res); FlipRows(f.SkyA, res); FlipRows(f.SkyB, res);
                 if (f.Gpu != null) FlipRows(f.Gpu, res);
                 if (f.RawLocal != null) FlipRows(f.RawLocal, res);
+                if (f.RawNoSun != null) FlipRows(f.RawNoSun, res);
                 if (f.FlameMask != null) FlipRows(f.FlameMask, res);
                 if (f.ProxyGpu != null) FlipRows(f.ProxyGpu, res);
                 f.Flip = false;
             }
             var col = f.RawCol; var skyA = f.SkyA; var skyB = f.SkyB; var gpu = f.Gpu; var local = f.RawLocal;
             bool rays = gpu == null;
-            long lumSum = 0, rSum = 0, gSum = 0, bSum = 0, localSum = 0; int count = 0;
+            var noSun = f.RawNoSun;
+            Color32[] ambient = noSun != null ? new Color32[res * res] : null;
+            long lumSum = 0, rSum = 0, gSum = 0, bSum = 0, localSum = 0, ambSum = 0; int count = 0;
             var sky = new bool[res * res];
             int diffSky = 0;
             for (int p = 0; p < col.Length; p++)
@@ -642,6 +673,23 @@ namespace LivePortals
                         l.b = (byte)Mathf.Clamp(Mathf.RoundToInt(l.b * exposure), 0, 255);
                         local[p] = l;
                     }
+                    if (noSun != null)
+                    {
+                        Color32 s = noSun[p];
+                        s.r = (byte)Mathf.Clamp(Mathf.RoundToInt(s.r * exposure), 0, 255);
+                        s.g = (byte)Mathf.Clamp(Mathf.RoundToInt(s.g * exposure), 0, 255);
+                        s.b = (byte)Mathf.Clamp(Mathf.RoundToInt(s.b * exposure), 0, 255);
+                        noSun[p] = s;
+                    }
+                }
+                if (ambient != null)
+                {
+                    // Sky light alone = (no sun) - (torches alone), in linear light, and never more than the picture has.
+                    Color32 s = noSun[p]; Color32 l = local != null ? local[p] : new Color32(0, 0, 0, 255);
+                    ambient[p] = new Color32(
+                        Srgb.Encode(Mathf.Min(Srgb.Lin[c.r], Mathf.Max(0f, Srgb.Lin[s.r] - Srgb.Lin[l.r]))),
+                        Srgb.Encode(Mathf.Min(Srgb.Lin[c.g], Mathf.Max(0f, Srgb.Lin[s.g] - Srgb.Lin[l.g]))),
+                        Srgb.Encode(Mathf.Min(Srgb.Lin[c.b], Mathf.Max(0f, Srgb.Lin[s.b] - Srgb.Lin[l.b]))), 255);
                 }
                 c.a = 255;
                 col[p] = c;
@@ -649,9 +697,25 @@ namespace LivePortals
                 {
                     lumSum += (c.r * 54 + c.g * 183 + c.b * 19) >> 8; rSum += c.r; gSum += c.g; bSum += c.b; count++;
                     if (local != null) { Color32 l = local[p]; localSum += (l.r * 54 + l.g * 183 + l.b * 19) >> 8; }
+                    if (ambient != null) { Color32 a2 = ambient[p]; ambSum += (a2.r * 54 + a2.g * 183 + a2.b * 19) >> 8; }
                 }
             }
-            var raw = new RawFace { Col = col, Sky = sky, Local = local, Depth = rays ? null : MetricDepth(gpu, sky, res, far, depthRange, f.Pos, f.Rot, waterLevel) };
+            var raw = new RawFace { Col = col, Sky = sky, Local = local, Ambient = ambient, Depth = rays ? null : MetricDepth(gpu, sky, res, far, depthRange, f.Pos, f.Rot, waterLevel) };
+            if (raw.Depth != null && (local != null || ambient != null))
+            {
+                // Whatever lies at the end of the depth range is the haze dome, baked cloud or the far sea: things that
+                // show their own colour whatever lights are on. The "torches only" render shows them as bright as
+                // the picture does, and the window added them to the picture a second time (a foggy night capture:
+                // pale slabs with straight edges where a baked stretch of sky met the live one). No torch reaches
+                // that far: nothing of them is local light, all of it is the sky's.
+                float farAway = depthRange * 0.999f;
+                for (int p = 0; p < res * res; p++)
+                {
+                    if (sky[p] || raw.Depth[p] < farAway) continue;
+                    if (local != null) local[p] = new Color32(0, 0, 0, 255);
+                    if (ambient != null) { Color32 c = col[p]; ambient[p] = new Color32(c.r, c.g, c.b, 255); }
+                }
+            }
             if (raw.Depth != null && f.FlameMask != null && f.ProxyGpu != null)
             {
                 // Where a pixel is mostly flame, note the depth of its fire's stand-in (if nearer than what was
@@ -688,6 +752,7 @@ namespace LivePortals
                 {
                     pt.AverageLuminance = lumSum / (255f * count);
                     pt.AverageLocalLuminance = Mathf.Min(pt.AverageLuminance, localSum / (255f * count));
+                    pt.AverageAmbientLuminance = ambient != null ? Mathf.Min(pt.AverageLuminance, ambSum / (255f * count)) : -1f;
                     pt.AverageColor = new Color(rSum / (255f * count), gSum / (255f * count), bSum / (255f * count), 1f);
                 }
             }
@@ -974,11 +1039,15 @@ namespace LivePortals
         {
             var h = new Hidden();
             var hidden = h.Renderers; var hiddenLights = h.Lights; var hiddenColliders = h.Colliders;
-            var lp = Player.m_localPlayer;
-            if (lp != null)
+            // Every player, not only this one: travel through a portal with a friend and the friend stands right in
+            // front of the ring when the arrival capture is taken, and stays there in the picture for good. Their
+            // torches' light goes with them; it is not part of the place.
+            foreach (var pl in Player.GetAllPlayers())
             {
-                foreach (var r in lp.GetComponentsInChildren<Renderer>(false)) if (r.enabled) { r.enabled = false; hidden.Add(r); }
-                foreach (var c in lp.GetComponentsInChildren<Collider>(false)) if (c.enabled) { c.enabled = false; hiddenColliders.Add(c); }
+                if (pl == null) continue;
+                foreach (var r in pl.GetComponentsInChildren<Renderer>(false)) if (r.enabled) { r.enabled = false; hidden.Add(r); }
+                foreach (var l in pl.GetComponentsInChildren<Light>(false)) if (l.enabled) { l.enabled = false; hiddenLights.Add(l); }
+                foreach (var c in pl.GetComponentsInChildren<Collider>(false)) if (c.enabled) { c.enabled = false; hiddenColliders.Add(c); }
             }
             if (portal != null)
             {

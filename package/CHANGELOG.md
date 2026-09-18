@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.22
+
+- Night no longer blacks the window out. The capture now also records what the sky's light alone contributes (`CaptureSkyLight`, one more render per face of the main viewpoint). The window dims the sunlit part of the picture with the sun, which at night falls to about a tenth, and the sky-lit part with the ambient light, which falls to about a third. Before, one number, driven mostly by the sun, dimmed everything. Needs a fresh capture of each portal; older captures behave as before.
+- Torchlight in the window was half as strong as it should have been: the start-up test calibrated the additive layer on a quad that the shader draws twice, while the picture's meshes are drawn once.
+- Other players are no longer part of a capture (a friend who came through the portal with you used to stand in front of it in the picture for good). The light of torches they carry is left out too.
+- The pane is a single-sided surface with proper normals that always faces you. The old one had none, and the game's ambient occlusion turned the window black on some portals at night.
+- The torchlight layer adds back only what the day/night dimming took away, so a night capture seen at night no longer shows torch-lit walls twice as bright; far haze, cloud and sea are no longer counted as torchlight.
+- The numpad keys are off unless you turn them on (`TuneKeys`, now under `6. Debug`, together with `DebugLog`).
+- Flames in a window now make the game's bloom glow around them (`FlameBloom`, 2 = pushed to about three times white; 0 = off). The window's picture is 8 bits and cannot hold anything brighter than white, so the flames are rendered once more on their own and added over the pane.
+
 ## 0.9.21
 
 - Fire is no longer part of the captured picture. The flames of fires, torches, sconces, braziers, furnaces and cooking places that somebody built are left out of the capture; the capture notes where each one stands, and the window plays the game's own flame effects at those places behind the pane. Real flames: in the right spot from every angle, hidden by the pillar in front of them, burning, and as bright at night as a flame is. `LiveFire` (on), `LiveFireMax` (32). Needs a fresh capture of each portal; older captures look as before.

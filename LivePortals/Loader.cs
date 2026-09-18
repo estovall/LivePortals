@@ -85,6 +85,7 @@ namespace LivePortals
                     if (meta.TryGetValue(pre + "dayFraction", out var df)) float.TryParse(df, NumberStyles.Float, CultureInfo.InvariantCulture, out cap.DayFraction);
                     if (meta.TryGetValue(pre + "avgLum", out var al)) float.TryParse(al, NumberStyles.Float, CultureInfo.InvariantCulture, out cap.AverageLuminance);
                     if (meta.TryGetValue(pre + "avgLocalLum", out var all)) float.TryParse(all, NumberStyles.Float, CultureInfo.InvariantCulture, out cap.AverageLocalLuminance);
+                    if (meta.TryGetValue(pre + "avgAmbientLum", out var aal)) float.TryParse(aal, NumberStyles.Float, CultureInfo.InvariantCulture, out cap.AverageAmbientLuminance);
                     if (meta.TryGetValue(pre + "avgColor", out var ac)) cap.AverageColor = Storage.P(ac);
                     if (meta.TryGetValue(pre + "offset", out var os)) offset = Storage.PV(os);
                     set.Captures.Add(cap);
@@ -101,6 +102,11 @@ namespace LivePortals
                         {
                             QueueTexture(Storage.LocalPath(_dir, _key, p, i), t => cap.Locals[face] = t);
                             QueueTexture(Storage.LocalFrontPath(_dir, _key, p, i), t => cap.LocalsFront[face] = t);
+                            if (WindowMaterial.AdditiveScalable)
+                            {
+                                QueueTexture(Storage.AmbientPath(_dir, _key, p, i), t => cap.Ambients[face] = t);
+                                QueueTexture(Storage.AmbientFrontPath(_dir, _key, p, i), t => cap.AmbientsFront[face] = t);
+                            }
                         }
                         int n = cap.Grid;
                         var back = ReliefMesh.BackgroundData(g, n);

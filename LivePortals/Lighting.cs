@@ -2,8 +2,90 @@ using UnityEngine;
 
 namespace LivePortals
 {
+    /// <summary>sRGB bytes to linear light and back, for worker threads.</summary>
+    internal static class Srgb
+    {
+        internal static readonly float[] Lin = MakeLin();
+        private static readonly byte[] Enc = MakeEnc();
+
+        private static float[] MakeLin()
+        {
+            var t = new float[256];
+            for (int i = 0; i < 256; i++) { float c = i / 255f; t[i] = c <= 0.04045f ? c / 12.92f : Mathf.Pow((c + 0.055f) / 1.055f, 2.4f); }
+            return t;
+        }
+
+        private static byte[] MakeEnc()
+        {
+            var t = new byte[4096];
+            for (int i = 0; i < t.Length; i++)
+            {
+                float l = i / (float)(t.Length - 1);
+                float c = l <= 0.0031308f ? l * 12.92f : 1.055f * Mathf.Pow(l, 1f / 2.4f) - 0.055f;
+                t[i] = (byte)Mathf.Clamp(Mathf.RoundToInt(c * 255f), 0, 255);
+            }
+            return t;
+        }
+
+        internal static byte Encode(float linear) => Enc[Mathf.Clamp((int)(linear * (Enc.Length - 1) + 0.5f), 0, Enc.Length - 1)];
+    }
+
     internal static class Lighting
     {
+        /// <summary>
+        /// For a capture that holds its sky-lit part as a layer of its own: the tint of the picture itself, which
+        /// now follows the sun alone, and the strength of the sky-light layer on top of it, as a multiplier of light
+        /// per channel. Together: picture * sun + skyPart * (ambient - sun), the torchlight layer as before. The sun's
+        /// light falls to a tenth at night and the sky's to a third; one number for both (Tint) left everything
+        /// the sky lights, which at night is everything, three times too dark.
+        /// </summary>
+        internal static void SplitTint(PortalCapture cap, float strength, out Color sunTint, out Color skyGain)
+        {
+            Sample(out var sun, out var amb, out _, out _);
+            float ratio = Mathf.Clamp((Luminance(sun) + 0.02f) / (Luminance(cap.Sun) + 0.02f), 0.04f, 4f);
+            Color chroma = Color.white;
+            float thenLum = Luminance(cap.Sun), nowLum = Luminance(sun);
+            if (thenLum > 0.01f && nowLum > 0.01f)
+            {
+                Color a = cap.Sun / thenLum, b = sun / nowLum;
+                chroma = new Color(Mathf.Clamp(b.r / Mathf.Max(0.05f, a.r), 0.7f, 1.5f),
+                                   Mathf.Clamp(b.g / Mathf.Max(0.05f, a.g), 0.7f, 1.5f),
+                                   Mathf.Clamp(b.b / Mathf.Max(0.05f, a.b), 0.7f, 1.5f), 1f);
+                chroma = Color.Lerp(Color.white, chroma, 0.25f);
+            }
+            sunTint = Color.Lerp(Color.white, chroma * ratio, strength);
+            sunTint.a = 1f;
+            // Light colours are given in display values; the light itself goes with their 2.2th power.
+            skyGain = new Color(SkyChannel(amb.r, cap.Ambient.r, sunTint.r, strength), SkyChannel(amb.g, cap.Ambient.g, sunTint.g, strength), SkyChannel(amb.b, cap.Ambient.b, sunTint.b, strength), 1f);
+        }
+
+        private static float SkyChannel(float now, float then, float sunTint, float strength)
+        {
+            float ra = Mathf.Lerp(1f, Mathf.Clamp((now + 0.01f) / (then + 0.01f), 0.04f, 4f), strength);
+            return Mathf.Clamp(Mathf.Pow(ra, 2.2f) - Mathf.Pow(sunTint, 2.2f), 0f, 4f);
+        }
+
+        /// <summary>
+        /// One number for the parts of a split capture that have no sky-light layer over them (filled-in ground, the
+        /// other viewpoints, skirts, the far shell): the picture's own shares of sun, sky and torch light, each
+        /// followed to now.
+        /// </summary>
+        internal static Color MixedTint(PortalCapture cap, Color sunTint, Color skyGain)
+        {
+            float total = Mathf.Max(0.001f, cap.AverageLuminance);
+            float sky = Mathf.Clamp(cap.AverageAmbientLuminance, 0f, total), local = Mathf.Clamp(cap.AverageLocalLuminance, 0f, total - sky);
+            float sunShare = (total - sky - local) / total, skyShare = sky / total, localShare = local / total;
+            Color c = new Color(Mix(sunTint.r, skyGain.r, sunShare, skyShare, localShare), Mix(sunTint.g, skyGain.g, sunShare, skyShare, localShare), Mix(sunTint.b, skyGain.b, sunShare, skyShare, localShare), 1f);
+            return c;
+        }
+
+        private static float Mix(float sunTint, float skyGain, float sunShare, float skyShare, float localShare)
+        {
+            float s = Mathf.Pow(sunTint, 2.2f);
+            float light = sunShare * s + skyShare * (s + skyGain) + localShare;
+            return Mathf.Clamp(Mathf.Pow(light, 1f / 2.2f), 0.04f, 4f);
+        }
+
         private static readonly int AmbientId = Shader.PropertyToID("_AmbientColor");
 
         internal static void Sample(out Color sun, out Color ambient, out Color fog, out float dayFraction)
