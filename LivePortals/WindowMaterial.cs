@@ -206,6 +206,21 @@ namespace LivePortals
                 if (m.HasProperty("_SpecColor")) m.SetColor("_SpecColor", Color.black);
                 m.EnableKeyword("_SPECULARHIGHLIGHTS_OFF");
                 m.EnableKeyword("_GLOSSYREFLECTIONS_OFF");
+                // The game's own shaders name their shine differently (Custom/Creature: _MetallicGlossMap and
+                // _MetalColor), and left at their defaults the surfaces stood glossy and mirrored the torches by the
+                // ring (0.9.22, once the pane had real normals). Every metal, gloss or specular input goes black.
+                if (_black == null) _black = Solid(new Color32(0, 0, 0, 255));
+                for (int i = 0; i < sh.GetPropertyCount(); i++)
+                {
+                    string n = sh.GetPropertyName(i), l = n.ToLowerInvariant();
+                    if (!(l.Contains("metal") || l.Contains("gloss") || l.Contains("spec") || l.Contains("smooth") || l.Contains("reflect"))) continue;
+                    switch (sh.GetPropertyType(i))
+                    {
+                        case ShaderPropertyType.Texture: m.SetTexture(n, _black); break;
+                        case ShaderPropertyType.Color: m.SetColor(n, Color.black); break;
+                        case ShaderPropertyType.Float: case ShaderPropertyType.Range: m.SetFloat(n, 0f); break;
+                    }
+                }
             }
             else if (m.HasProperty("_Color")) m.SetColor("_Color", Color.white);
         }

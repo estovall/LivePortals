@@ -578,6 +578,15 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     "the grass was popping in and out as i walked up to the portal": it was switched on at
     SecondaryViewpointRange + 4 m. Now drawn from + 12 m and grown out of the ground over the next 8 m
     (`GrassSet.Draw(..., grow)`, a y scale on each instance). **Both untested.**
+56. 0.9.24 testing (2026-09-18, home PC). Max: "the portals seem to have a glossy sheen on them and reflect light".
+    `Configure` zeroed only Unity's standard specular names; Custom/Creature's are `_MetallicGlossMap` and
+    `_MetalColor` (see the shader list in the log). Now every property whose name contains metal/gloss/spec/
+    smooth/reflect is set black (texture, colour or float). Also: Max's dusk captures (dayFraction 0.73-0.76,
+    sun deep orange) look pale pink at night; the sky-light part of a sunset capture is dimmed only by the ambient
+    ratio. Waiting for a numpad-5 dump (TuneKeys turned on in his config under [6. Debug]) and a night recapture
+    to confirm before touching the tint. Perf at his hub: 8 windows, 28 fps, but the windows cost only 45 ms/s.
+    The hand-placed Max-LivePortals folder (0.9.19) sat next to the Gale package Max-Immersive_Portals (0.9.22)
+    on this PC; removed. Test DLLs now go into the Gale package folder.
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

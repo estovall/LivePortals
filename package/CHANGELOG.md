@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.24 (TESTING: on the `testing` branch only, not published)
+
+- No more glossy sheen on the window. The game shader the pane and reliefs are drawn with keeps its shine in inputs of its own (`_MetallicGlossMap`, `_MetalColor`), which were left at their defaults, so once the pane had real normals (0.9.22) the torches by the ring reflected off it. Every metal, gloss and specular input of the shader is now black.
+
 ## 0.9.23 (TESTING: on the `testing` branch only, not published)
 
 Not yet better than 0.9.22. Everything here is unconfirmed in game.
