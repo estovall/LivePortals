@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.14
+
+- The window fades in cleanly again. The picture fades over the real scene as you approach; the black plug behind it now appears only under the last part of the fade, when the picture already covers it, instead of dissolving in blocky holes the whole way.
+
 ## 0.9.13
 
 - The ring no longer goes black at some angles. The game's own swirl in the ring is transparent and sits on the pane's plane, and depending on the angle the game drew it after the picture. It is switched off while the window shows (`HideSwirl`, on) and the picture sits a little further off the plug.

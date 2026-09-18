@@ -301,7 +301,10 @@ namespace LivePortals
             // only from behind. From the front, mirror the mesh (a negative x scale: the disc is symmetric, only
             // its UVs flip). Sprite shaders ignore texture scale/offset, so it has to be done on the geometry.
             _pane.transform.localScale = new Vector3(front ? -w : w, h, 1f);
-            if (_paneSolid) WindowMaterial.SetPaneVisible(_paneMat, alpha);
+            // The picture fades in over the real scene; the plug behind it only dissolves in under the last part
+            // of the fade, when the picture already covers it. (0.9.10 to 0.9.13 dissolved the plug across the
+            // whole fade: blocky holes with a half-transparent picture over them.)
+            if (_paneSolid) WindowMaterial.SetPaneVisible(_paneMat, _overlay != null ? Mathf.Clamp01((alpha - 0.85f) / 0.15f) : alpha);
             else _paneMat.color = new Color(1f, 1f, 1f, alpha);
             if (_overlay != null)
             {

@@ -349,6 +349,9 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     `TeleportWorld.m_target_found` is transparent on the same plane and sorts before or after our sprite by angle.
     `PortalWindow.SetSwirlHidden` disables its renderers while alpha >= 0.5 (`HideSwirl` config), restored on
     Hide/Cleanup; sprite offset 1 cm -> 3 cm. **Untested.**
+37. 0.9.14: Max, "showing up both transparent and pixelated" (mid-fade screenshot): plug dissolving (64x64 point
+    noise = blocky) under a half-alpha sprite. Now the sprite alpha = fade, the plug's `SetPaneVisible` gets
+    (alpha-0.85)/0.15 so it only cuts in under the last 15%. **Untested.**
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 
