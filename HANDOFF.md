@@ -341,6 +341,9 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     through `RenderDepthPass` with mask FaceLayer (slot 6 `ProxyGpu`). `Compose` gives flame-mask pixels
     (r+g+b >= 90) the proxy depth where nearer. `Layers.HalfRes` also makes `LocalFront` (foreground pixels'
     local light, `_p0_lf<i>.png`) drawn as "GlowFront" on the Front mesh. **Untested.**
+35. 0.9.12: Max, on 0.9.11: torches right, "those pillars have chunks missing". The flame mask's glow spill (sum >=
+    90) over the pillars behind moved those pixels to the flame's depth. Now sum >= 150 and the mask must be at
+    least half the colour pixel's brightness. **Untested.**
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

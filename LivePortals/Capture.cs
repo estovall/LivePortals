@@ -646,10 +646,15 @@ namespace LivePortals
             if (raw.Depth != null && f.FlameMask != null && f.ProxyGpu != null)
             {
                 // Flame pixels take the depth of their fire's stand-in, wherever that is nearer than what was behind.
+                // Only where the flame is most of what the pixel shows: its faint glow spills onto the wall or
+                // pillar behind, and pulling those pixels forward tore chunks out of the pillars (0.9.11).
                 for (int p = 0; p < res * res; p++)
                 {
                     Color32 m = f.FlameMask[p];
-                    if (m.r + m.g + m.b < 90) continue;
+                    int ml = m.r + m.g + m.b;
+                    if (ml < 150) continue;
+                    Color32 cc = col[p];
+                    if (ml * 2 < cc.r + cc.g + cc.b) continue;
                     int y = p / res;
                     float d = Linear(f.ProxyGpu[(_flipY ? res - 1 - y : y) * res + p % res], _reversedZ, far);
                     if (d >= far * 0.5f || d >= raw.Depth[p]) continue;

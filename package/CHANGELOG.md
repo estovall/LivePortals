@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.12
+
+- Pillars behind torches no longer have chunks missing. The faint glow around a flame spilled onto whatever stood behind it and 0.9.11 pulled those pixels forward with the flame; now only pixels the flame itself dominates move.
+
 ## 0.9.11
 
 - Fires sit where they burn. Flame effects write no depth, so a hearth in the middle of a hall was painted onto the wall behind it. Each face now also renders the flames alone and a depth-only stand-in at each fire, and flame pixels take that distance: the fire becomes a near object in its own place. The flames also join the untinted light layer, so they stay bright at night. Takes effect at the next trip through a portal.
