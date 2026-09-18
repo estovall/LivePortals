@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.11
+
+- Fires sit where they burn. Flame effects write no depth, so a hearth in the middle of a hall was painted onto the wall behind it. Each face now also renders the flames alone and a depth-only stand-in at each fire, and flame pixels take that distance: the fire becomes a near object in its own place. The flames also join the untinted light layer, so they stay bright at night. Takes effect at the next trip through a portal.
+
 ## 0.9.10
 
 - The window is no longer dark at night. The picture was drawn on the pane as emission, and one of the game's opaque-stage screen effects (the ambient occlusion by all signs, which is strongest at night) darkened it to nothing. The pane is now a black depth-writing plug, so fog and mist still see a surface at the portal, with the picture drawn over it as a sprite after those effects have run. Diagnosed with the 0.9.9 keys, which are gone again.

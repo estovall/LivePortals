@@ -16,6 +16,8 @@ namespace LivePortals
         public Texture2D[] Fronts = new Texture2D[6];
         /// <summary>Light from torches, fires and glowing things (not the sun or sky), added on top of the background untinted; null when the capture has none.</summary>
         public Texture2D[] Locals = new Texture2D[6];
+        /// <summary>The same for the foreground layer (the flames themselves, mostly).</summary>
+        public Texture2D[] LocalsFront = new Texture2D[6];
         /// <summary>Relief meshes per face, built by the loader from the grids; the reliefs share them and this owns them.</summary>
         public Mesh[] Back = new Mesh[6], Skirt = new Mesh[6], Shell = new Mesh[6], Front = new Mesh[6];
         /// <summary>Nodes per edge of the depth grids; cells per edge is Grid - 1.</summary>
@@ -36,6 +38,7 @@ namespace LivePortals
             for (int i = 0; i < Faces.Length; i++) if (Faces[i] != null) Object.Destroy(Faces[i]);
             for (int i = 0; i < Fronts.Length; i++) if (Fronts[i] != null) Object.Destroy(Fronts[i]);
             for (int i = 0; i < Locals.Length; i++) if (Locals[i] != null) Object.Destroy(Locals[i]);
+            for (int i = 0; i < LocalsFront.Length; i++) if (LocalsFront[i] != null) Object.Destroy(LocalsFront[i]);
             for (int i = 0; i < 6; i++)
             {
                 if (Back[i] != null) Object.Destroy(Back[i]);
@@ -198,6 +201,10 @@ namespace LivePortals
             public RenderTexture Color, A, B, Z, F;
             public Texture2D TexC, TexA, TexB, TexF; // for reads done on the spot: the probes, and every read when async readback is unavailable
             public CommandBuffer DepthCopy;
+            /// <summary>The flames kept in the capture, and a depth-only stand-in at each one's place (see RenderFace step 4).</summary>
+            public List<ParticleSystemRenderer> Flames = new List<ParticleSystemRenderer>();
+            public List<GameObject> Proxies = new List<GameObject>();
+            public int[] FlameLayers = new int[0];
             /// <summary>Depth comes from physics rays (no GPU depth read agreed with them, or none has been checked yet).</summary>
             public bool Rays => _method == DepthMethod.Rays || _method == DepthMethod.Unknown;
         }
@@ -330,9 +337,45 @@ namespace LivePortals
             Object.Destroy(rig.TexA); Object.Destroy(rig.TexB); Object.Destroy(rig.TexC); Object.Destroy(rig.TexF);
             foreach (var rt in new[] { rig.Color, rig.A, rig.B, rig.Z, rig.F }) { rt.Release(); Object.Destroy(rt); }
             rig.DepthCopy.Release();
+            foreach (var go in rig.Proxies) if (go != null) { var mr = go.GetComponent<MeshRenderer>(); if (mr != null && mr.sharedMaterial != null) Object.Destroy(mr.sharedMaterial); Object.Destroy(go); }
+            rig.Proxies.Clear();
             Object.Destroy(rig.Go);
             Object.Destroy(rig.ColorGo);
             if (rig.Profile != null) Object.Destroy(rig.Profile);
+        }
+
+        /// <summary>
+        /// A quad the size of each flame's bounds, on the capture layer, that only writes depth. Flames write none
+        /// themselves; rendered alone these give every flame pixel the distance of its fire (RenderFace step 4).
+        /// </summary>
+        internal static void MakeProxies(Rig rig, Hidden hidden)
+        {
+            rig.Flames.Clear();
+            var mat = WindowMaterial.MakeDepthOnly();
+            if (mat == null || hidden.Flames.Count == 0) return;
+            foreach (var ps in hidden.Flames)
+            {
+                if (ps == null) continue;
+                // A quad through the flame's centre, turned to face each capture point as it is rendered: its depth is
+                // the fire's own, not a sphere's near side.
+                var go = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                go.name = "LivePortals_FlameProxy";
+                var col = go.GetComponent<Collider>();
+                if (col != null) Object.Destroy(col);
+                go.layer = Plugin.FaceLayer;
+                var b = ps.bounds;
+                go.transform.position = b.center;
+                go.transform.localScale = Vector3.Max(new Vector3(Mathf.Max(b.size.x, b.size.z), b.size.y, 1f), new Vector3(0.25f, 0.25f, 1f));
+                var mr = go.GetComponent<MeshRenderer>();
+                mr.sharedMaterial = new Material(mat);
+                mr.shadowCastingMode = ShadowCastingMode.Off;
+                mr.receiveShadows = false;
+                mr.enabled = false;
+                rig.Proxies.Add(go);
+                rig.Flames.Add(ps);
+            }
+            rig.FlameLayers = new int[rig.Flames.Count];
+            Object.Destroy(mat);
         }
 
         internal static void EnsureProbed(Rig rig, Vector3 pos, Quaternion rot)
@@ -439,6 +482,45 @@ namespace LivePortals
                 Read(rig.B, rig.TexB, rig.Res, f, 2);
                 // 3. Depth per pixel.
                 if (f.NeedGpu) { RenderDepthPass(rig, _method); Read(rig.F, rig.TexF, rig.Res, f, 3); }
+                // 4. Flames: which pixels are flame (the flames rendered alone, on their own layer) and how far
+                //    away each fire is (the depth-only stand-ins rendered alone). Flames write no depth, so
+                //    without this a hearth is painted onto the wall behind it.
+                if (f.NeedGpu && rig.Proxies.Count > 0)
+                {
+                    int mask = cam.cullingMask;
+                    try
+                    {
+                        for (int k = 0; k < rig.Flames.Count; k++)
+                        {
+                            var ps = rig.Flames[k];
+                            if (ps == null) continue;
+                            rig.FlameLayers[k] = ps.gameObject.layer;
+                            ps.gameObject.layer = Plugin.FaceLayer;
+                        }
+                        cam.cullingMask = 1 << Plugin.FaceLayer;
+                        cam.allowHDR = rig.Hdr; cam.allowMSAA = rig.Msaa;
+                        cam.backgroundColor = Color.black;
+                        cam.targetTexture = rig.A; cam.Render(); cam.targetTexture = null;
+                        Read(rig.A, rig.TexA, rig.Res, f, 5);
+                    }
+                    finally
+                    {
+                        for (int k = 0; k < rig.Flames.Count; k++) if (rig.Flames[k] != null) rig.Flames[k].gameObject.layer = rig.FlameLayers[k];
+                    }
+                    foreach (var go in rig.Proxies)
+                        if (go != null)
+                        {
+                            Vector3 to = go.transform.position - f.Pos;
+                            if (to.sqrMagnitude > 1e-4f) go.transform.rotation = Quaternion.LookRotation(to);
+                            go.GetComponent<MeshRenderer>().enabled = true;
+                        }
+                    try { RenderDepthPass(rig, _method); Read(rig.F, rig.TexF, rig.Res, f, 6); }
+                    finally
+                    {
+                        foreach (var go in rig.Proxies) if (go != null) go.GetComponent<MeshRenderer>().enabled = false;
+                        cam.cullingMask = mask;
+                    }
+                }
             }
             finally { RenderSettings.fog = rig.FogOn; }
         }
@@ -486,14 +568,14 @@ namespace LivePortals
         {
             if (_asyncOk)
             {
-                f.Req[slot] = AsyncGPUReadback.Request(rt, 0, slot == 3 ? TextureFormat.RFloat : TextureFormat.RGBA32);
+                f.Req[slot] = AsyncGPUReadback.Request(rt, 0, slot == 3 || slot == 6 ? TextureFormat.RFloat : TextureFormat.RGBA32);
                 f.Issued[slot] = true;
                 return;
             }
             RenderTexture.active = rt;
             into.ReadPixels(new Rect(0, 0, res, res), 0, 0, false);
             RenderTexture.active = null;
-            if (slot == 3) f.Gpu = into.GetPixelData<float>(0).ToArray(); else f.Set(slot, into.GetPixels32());
+            if (slot == 3 || slot == 6) f.SetDepth(slot, into.GetPixelData<float>(0).ToArray()); else f.Set(slot, into.GetPixels32());
         }
 
         /// <summary>
@@ -509,6 +591,8 @@ namespace LivePortals
                 FlipRows(f.RawCol, res); FlipRows(f.SkyA, res); FlipRows(f.SkyB, res);
                 if (f.Gpu != null) FlipRows(f.Gpu, res);
                 if (f.RawLocal != null) FlipRows(f.RawLocal, res);
+                if (f.FlameMask != null) FlipRows(f.FlameMask, res);
+                if (f.ProxyGpu != null) FlipRows(f.ProxyGpu, res);
                 f.Flip = false;
             }
             var col = f.RawCol; var skyA = f.SkyA; var skyB = f.SkyB; var gpu = f.Gpu; var local = f.RawLocal;
@@ -559,6 +643,20 @@ namespace LivePortals
                 }
             }
             var raw = new RawFace { Col = col, Sky = sky, Local = local, Depth = rays ? null : MetricDepth(gpu, sky, res, far, depthRange, f.Pos, f.Rot, waterLevel) };
+            if (raw.Depth != null && f.FlameMask != null && f.ProxyGpu != null)
+            {
+                // Flame pixels take the depth of their fire's stand-in, wherever that is nearer than what was behind.
+                for (int p = 0; p < res * res; p++)
+                {
+                    Color32 m = f.FlameMask[p];
+                    if (m.r + m.g + m.b < 90) continue;
+                    int y = p / res;
+                    float d = Linear(f.ProxyGpu[(_flipY ? res - 1 - y : y) * res + p % res], _reversedZ, far);
+                    if (d >= far * 0.5f || d >= raw.Depth[p]) continue;
+                    raw.Depth[p] = Mathf.Max(0.05f, d);
+                    if (sky[p]) { sky[p] = false; Color32 c = col[p]; c.a = 255; col[p] = c; }
+                }
+            }
             if (f.Face == 0)
             {
                 int skyCount = 0;
@@ -819,6 +917,7 @@ namespace LivePortals
             public readonly List<Renderer> Renderers = new List<Renderer>();
             public readonly List<Light> Lights = new List<Light>();
             public readonly List<Collider> Colliders = new List<Collider>();
+            public readonly List<ParticleSystemRenderer> Flames = new List<ParticleSystemRenderer>(); // kept visible; see MakeProxies
 
             public void Hide()
             {
@@ -884,7 +983,7 @@ namespace LivePortals
             foreach (var ps in Object.FindObjectsByType<ParticleSystemRenderer>(FindObjectsSortMode.None))
             {
                 if (!ps.enabled || (portal != null && Vector3.Distance(ps.transform.position, at) > 150f)) continue;
-                if (Plugin.CaptureFlames.Value && IsFlame(ps)) continue;
+                if (Plugin.CaptureFlames.Value && IsFlame(ps)) { h.Flames.Add(ps); continue; }
                 ps.enabled = false;
                 hidden.Add(ps);
             }

@@ -334,6 +334,13 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     transparent stage. Diagnostics removed. **Untested**: night look; misty weather (the plug should keep the
     mist from painting over the ring, the 0.8.12 problem); the dissolve-in now fades the sprite while the plug
     cuts out underneath.
+34. 0.9.11, Max: the hearth's flames "thrown all over the back wall" (flame pixels had the wall's depth).
+    `Capture.MakeProxies`: a depth-only quad (`WindowMaterial.MakeDepthOnly`) per kept flame, sized to its bounds,
+    on FaceLayer, disabled; `RenderFace` step 4 (when NeedGpu and proxies exist): flames moved to FaceLayer and
+    rendered alone into rig.A (slot 5 `FlameMask`), then the quads turned to face the capture point and rendered
+    through `RenderDepthPass` with mask FaceLayer (slot 6 `ProxyGpu`). `Compose` gives flame-mask pixels
+    (r+g+b >= 90) the proxy depth where nearer. `Layers.HalfRes` also makes `LocalFront` (foreground pixels'
+    local light, `_p0_lf<i>.png`) drawn as "GlowFront" on the Front mesh. **Untested.**
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

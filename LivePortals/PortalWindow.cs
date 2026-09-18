@@ -668,7 +668,12 @@ namespace LivePortals
                     // Foreground from the primary viewpoint only. The others exist to fill in background the primary
                     // could not see; their own cut-outs of the same grass, leaves and posts, a few centimetres off,
                     // only turn thin things into a jumble of shards.
-                    if (cap.Fronts[i] != null && k == 0) AddLayer(rl, f.transform, "Front", cap.Front[i], cap.Fronts[i], false, 0.5f, order + 2);
+                    if (cap.Fronts[i] != null && k == 0)
+                    {
+                        AddLayer(rl, f.transform, "Front", cap.Front[i], cap.Fronts[i], false, 0.5f, order + 2);
+                        if (cap.LocalsFront[i] != null && WindowMaterial.AdditiveWorks)
+                            AddLayer(rl, f.transform, "GlowFront", cap.Front[i], WindowMaterial.MakeAdditive(cap.LocalsFront[i]), false, rl.Untinted);
+                    }
                 }
                 _reliefs.Add(rl);
             }

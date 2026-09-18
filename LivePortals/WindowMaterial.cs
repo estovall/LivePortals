@@ -40,6 +40,16 @@ namespace LivePortals
         /// <summary>An additive, depth-tested shader was found: the local-light layer can be drawn on top of the reliefs.</summary>
         internal static bool AdditiveWorks => _addShader != null;
 
+        private static Texture2D _black;
+
+        /// <summary>An opaque black material with the tested shader: writes depth, shows nothing. Null without a tested shader.</summary>
+        internal static Material MakeDepthOnly()
+        {
+            if (_setup == null) return null;
+            if (_black == null) _black = Solid(new Color32(0, 0, 0, 255));
+            return Make(_black, 0f, 0);
+        }
+
         /// <summary>Material that adds tex (the local light) onto whatever the relief already shows, untinted.</summary>
         internal static Material MakeAdditive(Texture tex)
         {

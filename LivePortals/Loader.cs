@@ -95,7 +95,11 @@ namespace LivePortals
                         if (!QueueTexture(Storage.FacePath(_dir, _key, p, i), t => cap.Faces[face] = t)) { _error = "face " + i + " of point " + p + " missing or unreadable"; return; }
                         // The foreground is drawn from the primary viewpoint only (see PortalWindow.BuildReliefs).
                         if (p == 0) QueueTexture(Storage.FrontPath(_dir, _key, p, i), t => cap.Fronts[face] = t);
-                        if (p == 0 && WindowMaterial.AdditiveWorks) QueueTexture(Storage.LocalPath(_dir, _key, p, i), t => cap.Locals[face] = t);
+                        if (p == 0 && WindowMaterial.AdditiveWorks)
+                        {
+                            QueueTexture(Storage.LocalPath(_dir, _key, p, i), t => cap.Locals[face] = t);
+                            QueueTexture(Storage.LocalFrontPath(_dir, _key, p, i), t => cap.LocalsFront[face] = t);
+                        }
                         int n = cap.Grid;
                         var back = ReliefMesh.BackgroundData(g, n);
                         var skirt = ReliefMesh.SkirtData(g, n);

@@ -62,6 +62,7 @@ namespace LivePortals
             _hidden = Capture.HideForCapture(_portal);
             try
             {
+                Capture.MakeProxies(_rig, _hidden);
                 Physics.SyncTransforms(); // so the rays and clearance checks do not hit the colliders just switched off
                 Vector3 forward = rot * Vector3.forward * 0.15f;
                 Capture.EnsureProbed(_rig, centre + rot * offsets[0] + forward, rot);
@@ -219,33 +220,40 @@ namespace LivePortals
         public Color32[] RawCol, SkyA, SkyB; // colour with fog; the black- and white-cleared sky-mask pair
         public Color32[] RawLocal;           // colour by local lights and emission only (null when not captured)
         public float[] Gpu;                  // device depth
+        public Color32[] FlameMask;          // the flames rendered alone (null when there are none)
+        public float[] ProxyGpu;             // device depth of the flames' stand-ins
         public RawFace Composed;             // only when depth comes from rays (main thread)
-        public readonly AsyncGPUReadbackRequest[] Req = new AsyncGPUReadbackRequest[5];
-        public readonly bool[] Issued = new bool[5];
+        public readonly AsyncGPUReadbackRequest[] Req = new AsyncGPUReadbackRequest[7];
+        public readonly bool[] Issued = new bool[7];
         public bool Error;
 
         public bool Ready => RawCol != null && SkyA != null && SkyB != null && (!NeedGpu || Gpu != null);
 
         public void Set(int slot, Color32[] px)
         {
-            if (slot == 0) RawCol = px; else if (slot == 1) SkyA = px; else if (slot == 2) SkyB = px; else RawLocal = px;
+            if (slot == 0) RawCol = px; else if (slot == 1) SkyA = px; else if (slot == 2) SkyB = px; else if (slot == 4) RawLocal = px; else FlameMask = px;
+        }
+
+        public void SetDepth(int slot, float[] d)
+        {
+            if (slot == 3) Gpu = d; else ProxyGpu = d;
         }
 
         /// <summary>Main thread: take whatever has arrived. True once everything is here, or something failed.</summary>
         public bool Collect()
         {
-            for (int s = 0; s < 5; s++)
+            for (int s = 0; s < 7; s++)
             {
                 if (!Issued[s]) continue;
                 var r = Req[s];
                 if (!r.done) return false;
                 if (r.hasError) { Error = true; return true; }
-                if (s == 3) Gpu = r.GetData<float>().ToArray(); else Set(s, r.GetData<Color32>().ToArray());
+                if (s == 3 || s == 6) SetDepth(s, r.GetData<float>().ToArray()); else Set(s, r.GetData<Color32>().ToArray());
                 Issued[s] = false;
             }
             return Ready;
         }
 
-        public void Release() { RawCol = SkyA = SkyB = RawLocal = null; Gpu = null; }
+        public void Release() { RawCol = SkyA = SkyB = RawLocal = FlameMask = null; Gpu = null; ProxyGpu = null; }
     }
 }

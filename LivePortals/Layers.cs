@@ -11,6 +11,8 @@ namespace LivePortals
         public Color32[] Front;  // foreground colour: alpha 255 only on near things; null if the face has none
         /// <summary>Light that does not come from the sun or the sky (torches, fires, glowing things, flames), on the background only, at LocalRes per edge; null when not captured.</summary>
         public Color32[] Local;
+        /// <summary>The same for the foreground pixels (flames, mostly); null when the face has no foreground.</summary>
+        public Color32[] LocalFront;
         public int LocalRes;
         public FaceGrids Grids;
     }
@@ -305,25 +307,12 @@ namespace LivePortals
                 }
 
             // ---- 7. Local light, at half resolution (it is smooth), only where the background was really seen ----
-            Color32[] local = null; int lres = 0;
+            Color32[] local = null, localFront = null; int lres = 0;
             if (raw.Local != null)
             {
                 lres = res / 2;
-                local = new Color32[lres * lres];
-                for (int y = 0; y < lres; y++)
-                    for (int x = 0; x < lres; x++)
-                    {
-                        int r = 0, g = 0, b = 0, cnt = 0;
-                        for (int dy = 0; dy < 2; dy++)
-                            for (int dx = 0; dx < 2; dx++)
-                            {
-                                int p = (y * 2 + dy) * res + x * 2 + dx;
-                                if (fg[p] != 0 || sky[p]) continue;
-                                Color32 c = raw.Local[p];
-                                r += c.r; g += c.g; b += c.b; cnt++;
-                            }
-                        local[y * lres + x] = cnt > 0 ? new Color32((byte)(r / cnt), (byte)(g / cnt), (byte)(b / cnt), 255) : new Color32(0, 0, 0, 255);
-                    }
+                local = HalfRes(raw.Local, fg, sky, res, lres, false);
+                if (front != null) localFront = HalfRes(raw.Local, fg, sky, res, lres, true);
             }
 
             return new FaceLayers
@@ -331,9 +320,31 @@ namespace LivePortals
                 Back = back,
                 Front = front,
                 Local = local,
+                LocalFront = localFront,
                 LocalRes = lres,
                 Grids = new FaceGrids { BgNode = bgNode, BgCell = bgCell, FgNode = fgNode, FgCell = fgCell },
             };
+        }
+
+        /// <summary>The local-light image at half resolution, averaged over the pixels of one layer (foreground or background, never sky); black elsewhere.</summary>
+        private static Color32[] HalfRes(Color32[] src, byte[] fg, bool[] sky, int res, int lres, bool foreground)
+        {
+            var outp = new Color32[lres * lres];
+            for (int y = 0; y < lres; y++)
+                for (int x = 0; x < lres; x++)
+                {
+                    int r = 0, g = 0, b = 0, cnt = 0;
+                    for (int dy = 0; dy < 2; dy++)
+                        for (int dx = 0; dx < 2; dx++)
+                        {
+                            int p = (y * 2 + dy) * res + x * 2 + dx;
+                            if (sky[p] || (fg[p] != 0) != foreground) continue;
+                            Color32 c = src[p];
+                            r += c.r; g += c.g; b += c.b; cnt++;
+                        }
+                    outp[y * lres + x] = cnt > 0 ? new Color32((byte)(r / cnt), (byte)(g / cnt), (byte)(b / cnt), 255) : new Color32(0, 0, 0, 255);
+                }
+            return outp;
         }
 
         /// <summary>Mean depth of the nearest foreground surface among the pixels of a window; 0 if it has no foreground.</summary>
