@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.17
+
+- The game's swirl plays over the picture again, as it did in vanilla and in 0.9.7. The picture is now drawn just before it and the plug sits a little behind the pane, so the swirl neither hides the picture nor fights it. `HideSwirl` is off; files that had it on are brought back.
+- Pillars near torches stay whole. A flame's depth is now only used in cells that hold no other near thing; a torch flame in front of a pillar stays with the pillar instead of pulling a chunk of it forward. A hearth in the open still sits at its own depth. Needs a recapture.
+
 ## 0.9.16
 
 - The blocky dissolve is back, and without the half-transparent picture. The plug and the picture now dissolve in as the same blocks: the picture is cut per cell instead of faded.

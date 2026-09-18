@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "Immersive Portals";
-        public const string VERSION = "0.9.16";
+        public const string VERSION = "0.9.17";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -163,7 +163,9 @@ namespace LivePortals
             PaneRound = Config.Bind("2. Window", "PaneRound", true, "Round pane (the ring's shape) instead of a square.");
             PaneStyle = Config.Bind("2. Window", "PaneStyle", PaneStyleOption.Sprite,
                 "How the picture is put in the ring. Sprite (0.9.10+): a black depth plug with the picture drawn over it after the game's screen effects, which keeps it bright at night. Emissive (0.8.12 to 0.9.9): one solid surface showing the picture as emission; the game's ambient occlusion darkens it at night, but it is the long-tested one.");
-            HideSwirl = Config.Bind("2. Window", "HideSwirl", true, "Switch the game's own swirl in the ring off while the window shows (it sits on the same plane and at some angles draws over the picture).");
+            HideSwirl = Config.Bind("2. Window", "HideSwirl", false, "Switch the game's own swirl in the ring off while the window shows. Off: the swirl plays over the picture as in vanilla.");
+            // 0.9.13 to 0.9.16 hid the swirl by default (a sorting problem since solved another way); files from then say true.
+            if (configVersion.Value < 3) { HideSwirl.Value = false; configVersion.Value = 3; }
             TuneKeys = Config.Bind("2. Window", "TuneKeys", true,
                 "Numpad tuning while in game: 8/2 ring height, 4/6 forward offset, 7/9 pane width, 1/3 pane height, . (period) toggles the glass test, 5 prints, saves, and dumps what every visible window drew (BepInEx/config/LivePortals/debug), 0 captures the nearest portal now. Values are saved to this file.");
             GlassTest = Config.Bind("2. Window", "GlassTest", false,

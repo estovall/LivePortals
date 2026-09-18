@@ -146,6 +146,7 @@ namespace LivePortals
     {
         public Color32[] Col;   // alpha 255 where something was drawn, 0 on sky (rgb is the fog colour there)
         public Color32[] Local; // the same view lit by nothing but local lights and emission; null when not captured
+        public float[] FlameDepth; // per pixel, the depth of the fire whose flame this pixel shows, else 0; null when there are no flames
         public bool[] Sky;
         public float[] Depth;   // view depth in metres per pixel, DepthRange on sky and beyond
     }
@@ -649,9 +650,11 @@ namespace LivePortals
             var raw = new RawFace { Col = col, Sky = sky, Local = local, Depth = rays ? null : MetricDepth(gpu, sky, res, far, depthRange, f.Pos, f.Rot, waterLevel) };
             if (raw.Depth != null && f.FlameMask != null && f.ProxyGpu != null)
             {
-                // Flame pixels take the depth of their fire's stand-in, wherever that is nearer than what was behind.
-                // Only where the flame is most of what the pixel shows: its faint glow spills onto the wall or
-                // pillar behind, and pulling those pixels forward tore chunks out of the pillars (0.9.11).
+                // Where a pixel is mostly flame, note the depth of its fire's stand-in (if nearer than what was
+                // behind). Layers decides where to use it: only in cells that hold no other near thing, or the
+                // cell's whole chunk of pillar would come forward with the flame (0.9.11 to 0.9.16).
+                var fd = new float[res * res];
+                bool any = false;
                 for (int p = 0; p < res * res; p++)
                 {
                     Color32 m = f.FlameMask[p];
@@ -662,9 +665,11 @@ namespace LivePortals
                     int y = p / res;
                     float d = Linear(f.ProxyGpu[(_flipY ? res - 1 - y : y) * res + p % res], _reversedZ, far);
                     if (d >= far * 0.5f || d >= raw.Depth[p]) continue;
-                    raw.Depth[p] = Mathf.Max(0.05f, d);
+                    fd[p] = Mathf.Max(0.05f, d);
+                    any = true;
                     if (sky[p]) { sky[p] = false; Color32 c = col[p]; c.a = 255; col[p] = c; }
                 }
+                if (any) raw.FlameDepth = fd;
             }
             if (f.Face == 0)
             {

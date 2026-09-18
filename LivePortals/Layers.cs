@@ -158,6 +158,33 @@ namespace LivePortals
                     if (cnt > 0) bgCell[c] = (float)(sum / cnt);
                 }
 
+            // ---- 2b. Flames at their fire's depth, in cells that hold no other near thing ----
+            // A flame in front of the back wall (a hearth) becomes a near thing of its own at the fire's distance. A
+            // flame in front of a pillar stays painted on the pillar: the cell's depth is one value, and moving it
+            // would take the pillar's pixels along.
+            if (raw.FlameDepth != null)
+            {
+                var fd = raw.FlameDepth;
+                for (int cy = 0; cy < cells; cy++)
+                    for (int cx = 0; cx < cells; cx++)
+                    {
+                        bool flame = false, other = false;
+                        for (int y = cy * step; y < (cy + 1) * step; y++)
+                            for (int x = cx * step; x < (cx + 1) * step; x++)
+                            {
+                                int p = y * res + x;
+                                if (fd[p] > 0f) flame = true; else if (fg[p] != 0) other = true;
+                            }
+                        if (!flame || other) continue;
+                        for (int y = cy * step; y < (cy + 1) * step; y++)
+                            for (int x = cx * step; x < (cx + 1) * step; x++)
+                            {
+                                int p = y * res + x;
+                                if (fd[p] > 0f) { fg[p] = 1; D[p] = fd[p]; anyFg = true; }
+                            }
+                    }
+            }
+
             // ---- 3. Node depths from the four pixels around each node ----
             var bgNode = new float[n * n];
             var fgNode = new float[n * n];

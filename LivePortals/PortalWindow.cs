@@ -311,8 +311,12 @@ namespace LivePortals
             else _paneMat.color = new Color(1f, 1f, 1f, alpha);
             if (_overlay != null)
             {
-                // A little toward the viewer, so it never fights the plug for the same depth.
-                _overlay.transform.localPosition = new Vector3(0f, 0f, realFront ? 0.03f : -0.03f);
+                // The plug sits a little behind the pane, the picture on it: the game's own swirl (transparent, on
+                // the pane) then passes the depth test against the plug and, drawn after the picture (see the
+                // picture's render queue), swirls over it as it did over the old emissive pane.
+                float off = realFront ? 0.03f : -0.03f;
+                _pane.transform.position = c - n * off;
+                _overlay.transform.localPosition = new Vector3(0f, 0f, off);
                 float shown = Dissolve.Reveal(alpha);
                 if (Mathf.Abs(shown - _overlayShown) > 0.002f)
                 {
@@ -643,6 +647,7 @@ namespace LivePortals
                 _overlayRenderer.enabled = false;
                 _overlayMat = new Material(FindShader("Sprites/Default", "Unlit/Transparent", "Unlit/Texture"));
                 _overlayMat.mainTexture = _rt;
+                _overlayMat.renderQueue = 2950; // in the transparent stage, but before the game's swirl (3000)
                 _overlayRenderer.sharedMaterial = _overlayMat;
             }
 
