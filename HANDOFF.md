@@ -713,6 +713,14 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     inside its ring (|along| < 1.1 m, lateral < 1.6 m) or IsTeleporting within 3 m, so the camera never faces the
     back of the picture (the CollideRay2 collider trick of 0.9.41 evidently did not move the camera). Not done:
     the capture's 45 ms frames (local/sky-light passes at half res would cut ~30%). **Untested.**
+76. 0.9.44 testing: Max: "do we need to do a capture as frequently as we are?" / "im good with these ideas".
+    `Plugin.CapturedRecently` skips a departure or arrival capture when the portal has one (in memory via
+    `CaptureRun.TryGetReady` / `_running`, or on disk via `Storage.StoredTime` + new `StoredDayFraction`)
+    younger than `RecaptureAfter` (300 s) with the day fraction within 0.06 (circular). The two light renders
+    go into a half-size RT (`Rig.L` / `TexL`, read at res/2, slots 4 and 7) and `Capture.Upsample` brings them
+    back to res in `Compose` (bilinear; `SideOf` for the flip), so Layers/Storage are unchanged. Not done: skip
+    the no-sun render when a face has no sky (needs sky known before it renders), skipping a capture while fps
+    is already low, pass-one reuse across redraws. **Untested.**
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

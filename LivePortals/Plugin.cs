@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "Immersive Portals";
-        public const string VERSION = "0.9.43";
+        public const string VERSION = "0.9.44";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -61,6 +61,7 @@ namespace LivePortals
         internal static ConfigEntry<bool> CaptureOnDeparture;
         internal static ConfigEntry<bool> CaptureOnArrival;
         internal static ConfigEntry<float> DepartureDelay;
+        internal static ConfigEntry<int> RecaptureAfter;
         internal static ConfigEntry<float> ArrivalDelay;
         internal static ConfigEntry<int> CaptureFacesPerFrame;
         internal static ConfigEntry<int> CaptureThreads;
@@ -202,6 +203,9 @@ namespace LivePortals
                 new ConfigDescription("Seconds after stepping in before the departure capture. Short: with the far side already loaded the game moves you and unloads this place within a moment of stepping in, and a capture that starts too late finds nothing. The capture itself takes one frame on departure.",
                     new AcceptableValueRange<float>(0f, 1.8f)));
             if (configVersion.Value < 4) { if (DepartureDelay.Value > 0.2f) DepartureDelay.Value = 0.2f; configVersion.Value = 4; }
+            RecaptureAfter = Config.Bind("3. Capture", "RecaptureAfter", 300,
+                new ConfigDescription("A portal captured within this many seconds, at about the same time of day, is not captured again on the next trip through it: bouncing between two portals, or through a hub, costs nothing after the first pass. 0 = capture every trip.",
+                    new AcceptableValueRange<int>(0, 3600)));
             ArrivalDelay = Config.Bind("3. Capture", "ArrivalDelay", 0.15f,
                 new ConfigDescription("Seconds after arrival before the capture, to let the area finish appearing while the screen is still dark.",
                     new AcceptableValueRange<float>(0f, 2f)));
@@ -555,6 +559,7 @@ namespace LivePortals
             // capture, so the place you came from was never shown until a second trip. The portal you left is
             // still loaded then, and you are not in its picture either way.
             if (portal == null || player == null) { Dbg("departure capture skipped: the portal is gone"); yield break; }
+            if (CapturedRecently(portal, "departure")) yield break;
             CaptureAt(portal, "departure");
         }
 
@@ -586,7 +591,33 @@ namespace LivePortals
                 if (d < bestD) { bestD = d; best = tw; }
             }
             if (best == null) { Dbg("arrival: no portal within 4 m, no capture"); yield break; }
+            if (CapturedRecently(best, "arrival")) yield break;
             CaptureAt(best, "arrival");
+        }
+
+        /// <summary>
+        /// True when this portal has a capture from the last RecaptureAfter seconds taken at about the same time of
+        /// day (in memory or in its files), so the trip needs none: the picture would be the same, and a capture is
+        /// the one expensive thing a trip does (twenty-odd frames of 45 ms).
+        /// </summary>
+        private static bool CapturedRecently(TeleportWorld portal, string why)
+        {
+            if (RecaptureAfter.Value <= 0) return false;
+            var nview = portal != null ? portal.GetComponent<ZNetView>() : null;
+            if (nview == null || !nview.IsValid()) return false;
+            ZDOID id = nview.GetZDO().m_uid;
+            long takenAt; float dayThen;
+            if (CaptureRun.TryGetReady(id, out var ready) && ready.PointList.Count > 0) { takenAt = ready.TakenAt; dayThen = ready.PointList[0].DayFraction; }
+            else if (_running.TryGetValue(id, out var running) && !running.Done && running.Error == null && running.RenderedAll && running.PointList.Count > 0) { takenAt = running.TakenAt; dayThen = running.PointList[0].DayFraction; }
+            else { takenAt = Storage.StoredTime(id); dayThen = Storage.StoredDayFraction(id); }
+            if (takenAt < 0 || dayThen < 0f) return false;
+            long age = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - takenAt;
+            if (age < 0 || age >= RecaptureAfter.Value) return false;
+            Lighting.Sample(out _, out _, out _, out float dayNow);
+            float diff = Mathf.Abs(dayNow - dayThen); if (diff > 0.5f) diff = 1f - diff;
+            if (diff > 0.06f) return false; // a Valheim day is about 30 minutes; 0.06 is under two of them
+            Dbg($"{why} capture skipped: {portal.name} was captured {age} s ago at the same time of day (RecaptureAfter {RecaptureAfter.Value} s)");
+            return true;
         }
 
         private void CaptureAt(TeleportWorld portal, string why)

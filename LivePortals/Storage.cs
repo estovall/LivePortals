@@ -191,6 +191,16 @@ namespace LivePortals
             return File.GetLastWriteTimeUtc(mp).Ticks;
         }
 
+        /// <summary>Time of day (0..1) the stored capture's primary viewpoint was taken at, or -1 without one.</summary>
+        internal static float StoredDayFraction(ZDOID id)
+        {
+            string mp = MetaPath(Dir(), Key(id));
+            if (!File.Exists(mp)) return -1f;
+            foreach (var line in File.ReadAllLines(mp))
+                if (line.StartsWith("p0.dayFraction=") && float.TryParse(line.Substring(15), NumberStyles.Float, CultureInfo.InvariantCulture, out float d)) return d;
+            return -1f;
+        }
+
         /// <summary>The portal's meta file as key/value pairs, or null when there is none. Any thread.</summary>
         internal static Dictionary<string, string> ReadMeta(string dir, string key)
         {

@@ -211,7 +211,9 @@ namespace LivePortals
             public float Far, DepthRange, WaterLevel;
             public bool Hdr, Msaa, FogOn;
             public RenderTexture Color, A, B, Z, F;
-            public Texture2D TexC, TexA, TexB, TexF; // for reads done on the spot: the probes, and every read when async readback is unavailable
+            /// <summary>Half the size of the others: the "torches only" and "no sun" renders (smooth light, upsampled in Compose). Two of a face's renders at a quarter of the pixels each.</summary>
+            public RenderTexture L;
+            public Texture2D TexC, TexA, TexB, TexF, TexL; // for reads done on the spot: the probes, and every read when async readback is unavailable
             public CommandBuffer DepthCopy;
             /// <summary>The flames kept in the capture, and a depth-only stand-in at each one's place (see RenderFace step 4).</summary>
             public List<ParticleSystemRenderer> Flames = new List<ParticleSystemRenderer>();
@@ -327,6 +329,8 @@ namespace LivePortals
                 B = new RenderTexture(res, res, 24, RenderTextureFormat.ARGB32),
                 Z = new RenderTexture(res, res, 24, RenderTextureFormat.Depth),
                 F = new RenderTexture(res, res, 0, RenderTextureFormat.RFloat, RenderTextureReadWrite.Linear),
+                L = new RenderTexture(res / 2, res / 2, 24, RenderTextureFormat.ARGB32),
+                TexL = new Texture2D(res / 2, res / 2, TextureFormat.RGBA32, false),
                 TexC = new Texture2D(res, res, TextureFormat.RGBA32, false),
                 TexA = new Texture2D(res, res, TextureFormat.RGBA32, false),
                 TexB = new Texture2D(res, res, TextureFormat.RGBA32, false),
@@ -335,7 +339,7 @@ namespace LivePortals
             };
             rig.Z.filterMode = FilterMode.Point;
             rig.F.filterMode = FilterMode.Point;
-            rig.Z.Create(); rig.F.Create(); rig.A.Create();
+            rig.Z.Create(); rig.F.Create(); rig.A.Create(); rig.L.Create();
             rig.DepthCopy.Blit(BuiltinRenderTextureType.Depth, rig.F);
             return rig;
         }
@@ -347,8 +351,8 @@ namespace LivePortals
             RenderTexture.active = null;
             if (rig.Cam != null) rig.Cam.targetTexture = null;
             if (rig.ColorCam != null) rig.ColorCam.targetTexture = null;
-            Object.Destroy(rig.TexA); Object.Destroy(rig.TexB); Object.Destroy(rig.TexC); Object.Destroy(rig.TexF);
-            foreach (var rt in new[] { rig.Color, rig.A, rig.B, rig.Z, rig.F }) { rt.Release(); Object.Destroy(rt); }
+            Object.Destroy(rig.TexA); Object.Destroy(rig.TexB); Object.Destroy(rig.TexC); Object.Destroy(rig.TexF); Object.Destroy(rig.TexL);
+            foreach (var rt in new[] { rig.Color, rig.A, rig.B, rig.Z, rig.F, rig.L }) { rt.Release(); Object.Destroy(rt); }
             rig.DepthCopy.Release();
             foreach (var go in rig.Proxies) if (go != null) { var mr = go.GetComponent<MeshRenderer>(); if (mr != null && mr.sharedMaterial != null) Object.Destroy(mr.sharedMaterial); Object.Destroy(go); }
             rig.Proxies.Clear();
@@ -553,7 +557,7 @@ namespace LivePortals
                 if (Plugin.CaptureLocalLight.Value)
                 {
                     RenderLocalLight(rig, false);
-                    Read(rig.A, rig.TexA, rig.Res, f, 4, sync);
+                    Read(rig.L, rig.TexL, rig.Res / 2, f, 4, sync);
                 }
                 // 1c. And with only the sun off: what the sky lights (plus 1b). At night the sun's share of the
                 //     picture all but goes while the sky's share only dims to a third or so; dimmed together by one
@@ -562,7 +566,7 @@ namespace LivePortals
                 if (Plugin.CaptureSkyLight.Value && f.PointIndex == 0)
                 {
                     RenderLocalLight(rig, true);
-                    Read(rig.Color, rig.TexC, rig.Res, f, 7, sync);
+                    Read(rig.L, rig.TexL, rig.Res / 2, f, 7, sync);
                 }
                 // 2. Sky mask: no fog, cleared black and then white. Where the two differ, nothing (or only
                 //    something thin, like the haze dome the game hangs over the whole sky) was drawn, and if
@@ -654,7 +658,7 @@ namespace LivePortals
                         RenderSettings.fogColor = Color.black;
                         Shader.SetGlobalColor(SunFogId, Color.black);
                         cam.backgroundColor = Color.black;
-                        cam.targetTexture = rig.Color; cam.Render(); cam.targetTexture = null;
+                        cam.targetTexture = rig.L; cam.Render(); cam.targetTexture = null;
                     }
                     finally { RenderSettings.fogColor = fogColor; }
                 }
@@ -670,7 +674,7 @@ namespace LivePortals
                     cam.allowHDR = rig.Hdr; cam.allowMSAA = rig.Msaa;
                     cam.depthTextureMode = DepthTextureMode.None;
                     cam.backgroundColor = Color.black;
-                    cam.targetTexture = rig.A; cam.Render(); cam.targetTexture = null;
+                    cam.targetTexture = rig.L; cam.Render(); cam.targetTexture = null;
                 }
             }
             finally
@@ -713,15 +717,18 @@ namespace LivePortals
             {
                 FlipRows(f.RawCol, res); FlipRows(f.SkyA, res); FlipRows(f.SkyB, res);
                 if (f.Gpu != null) FlipRows(f.Gpu, res);
-                if (f.RawLocal != null) FlipRows(f.RawLocal, res);
-                if (f.RawNoSun != null) FlipRows(f.RawNoSun, res);
+                if (f.RawLocal != null) FlipRows(f.RawLocal, SideOf(f.RawLocal, res));
+                if (f.RawNoSun != null) FlipRows(f.RawNoSun, SideOf(f.RawNoSun, res));
                 if (f.FlameMask != null) FlipRows(f.FlameMask, res);
                 if (f.ProxyGpu != null) FlipRows(f.ProxyGpu, res);
                 f.Flip = false;
             }
-            var col = f.RawCol; var skyA = f.SkyA; var skyB = f.SkyB; var gpu = f.Gpu; var local = f.RawLocal;
+            var col = f.RawCol; var skyA = f.SkyA; var skyB = f.SkyB; var gpu = f.Gpu;
             bool rays = gpu == null;
-            var noSun = f.RawNoSun;
+            // The light renders come at half the size (0.9.44): light is smooth, and the two of them were a third
+            // of a face's GPU time at full size. Up to the picture's size here, so the rest is as before.
+            var local = Upsample(f.RawLocal, res); f.RawLocal = local;
+            var noSun = Upsample(f.RawNoSun, res); f.RawNoSun = noSun;
             Color32[] ambient = noSun != null ? new Color32[res * res] : null;
             long lumSum = 0, rSum = 0, gSum = 0, bSum = 0, localSum = 0, ambSum = 0; int count = 0;
             var sky = new bool[res * res];
@@ -844,6 +851,38 @@ namespace LivePortals
                 }
             }
             return raw;
+        }
+
+        /// <summary>The side of a square image that is either res or half of it.</summary>
+        private static int SideOf(System.Array a, int res) => a.Length == (res / 2) * (res / 2) ? res / 2 : res;
+
+        /// <summary>A half-size image brought up to res by res with bilinear weights; a full-size one (or null) is returned as it is. Any thread.</summary>
+        internal static Color32[] Upsample(Color32[] src, int res)
+        {
+            if (src == null || src.Length != (res / 2) * (res / 2)) return src;
+            int h = res / 2;
+            var outp = new Color32[res * res];
+            for (int y = 0; y < res; y++)
+            {
+                // Sample centres: output pixel y sits at (y + 0.5) / 2 - 0.5 in the small image.
+                float sy = (y + 0.5f) * 0.5f - 0.5f;
+                int y0 = Mathf.Clamp(Mathf.FloorToInt(sy), 0, h - 1), y1 = Mathf.Min(y0 + 1, h - 1);
+                float wy = Mathf.Clamp01(sy - y0);
+                int o = y * res;
+                for (int x = 0; x < res; x++)
+                {
+                    float sx = (x + 0.5f) * 0.5f - 0.5f;
+                    int x0 = Mathf.Clamp(Mathf.FloorToInt(sx), 0, h - 1), x1 = Mathf.Min(x0 + 1, h - 1);
+                    float wx = Mathf.Clamp01(sx - x0);
+                    Color32 a = src[y0 * h + x0], b = src[y0 * h + x1], c = src[y1 * h + x0], d = src[y1 * h + x1];
+                    float w00 = (1f - wx) * (1f - wy), w10 = wx * (1f - wy), w01 = (1f - wx) * wy, w11 = wx * wy;
+                    outp[o + x] = new Color32(
+                        (byte)Mathf.RoundToInt(a.r * w00 + b.r * w10 + c.r * w01 + d.r * w11),
+                        (byte)Mathf.RoundToInt(a.g * w00 + b.g * w10 + c.g * w01 + d.g * w11),
+                        (byte)Mathf.RoundToInt(a.b * w00 + b.b * w10 + c.b * w01 + d.b * w11), 255);
+                }
+            }
+            return outp;
         }
 
         private static void FlipRows<T>(T[] a, int res)

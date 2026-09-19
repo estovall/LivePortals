@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.44 (TESTING: not published)
+
+- A portal captured within the last five minutes at about the same time of day is not captured again on the next trip through it (`RecaptureAfter`, 300 s; 0 = every trip). Bouncing between two portals, or fanning out from a hub, no longer pays for a capture each time.
+- A capture's two light renders ("torches only", "no sun") are done at half size and brought up to the picture's size afterwards: light is smooth, and they were a third of each face's GPU time. The capture's frames are shorter by about that much.
+
 ## 0.9.43 (TESTING: not published)
 
 - Arriving at a hub costs far less. Each window used to copy all of the far side's flame effects at once (32 Instantiates), and the loaders fed the collector over a gigabyte of short-lived arrays; the effects are now copied two per frame, and the loaders reuse their buffers.
