@@ -1,73 +1,73 @@
 # Changelog
 
-## 0.9.39 (TESTING: on the `testing` branch only, not published)
+## 0.9.39
+
+Released with everything from 0.9.23 up, tested on Max's server over 2026-09-18.
 
 - Arriving at a hub no longer drops the game to single digits. Eight windows loaded at once, each decoding forty PNGs on a normal-priority thread; loads now run two at a time on low-priority threads.
 - The far side's live flames simulate only while their window is being drawn. At a hub, some five hundred emitters were simulating every frame, most behind the player.
 
-## 0.9.38 (TESTING: on the `testing` branch only, not published)
+## 0.9.38
 
 - The glossy film on the window is gone. The reliefs are black surfaces showing the picture as emission, and the game's pipeline still gave them a black non-metal's reflectance, rising steeply at grazing angles: seen obliquely they mirrored the sky as a milky blue film and nearby torches as a gold-pink sheen on the dark parts, shifting with the eye. Environment reflections and every point and spot light are now switched off while a window renders; the sun and moon stay on for the grass. (The same capture redrawn offline without lighting was clean, which is what pointed at the lighting.)
 
-## 0.9.37 (TESTING: on the `testing` branch only, not published)
+## 0.9.37
 
 - A capture taken on a moonless night no longer comes up as a milky blue film when seen under a moon. The base of the picture was scaled by the sun ratio even when the capture had no sun in it; it now follows the sun and ambient ratios in the proportions the capture was lit with.
 
-## 0.9.36 (TESTING: on the `testing` branch only, not published)
+## 0.9.36
 
 - Departure captures survive distant teleports. The game starts loading the far zones the moment you step in, and at the few frames a second that leaves, a capture rendering one face per frame did not finish before the place behind you unloaded. Departures now render several faces per frame, and while one is still rendering the teleport is held just short of its two-second mark: nothing changes in ordinary play, a crawling teleport takes a fraction of a second longer under the loading screen.
 
-## 0.9.35 (TESTING: on the `testing` branch only, not published)
+## 0.9.35
 
 - The picture no longer depends on the window texture's alpha. The sprite that shows the picture multiplied it by that alpha, which the deferred passes leave well below one over most of the picture; at night that showed as a shadow over the window with the live grass standing out bright through it, and by day as the gloss and the dark rims round clouds. The start-up self-test now picks a picture shader that ignores alpha (Sprites/Default with its external-alpha input, or an additive one), and the plug behind it is plain black again.
 - Numpad 5 also dumps the flame glow layer.
 
-## 0.9.33 (TESTING: on the `testing` branch only, not published)
+## 0.9.33
 
 - No more stutter after a trip. 0.9.32 built the layers on six threads at once, and their scratch memory kept the collector busy enough to hold the game at 12 fps for a couple of seconds after each arrival. Three low-priority threads now (`CaptureThreads`), and captures render one face per frame (`CaptureFacesPerFrame`, brought down from 2 in existing configs).
 
-## 0.9.32 (TESTING: on the `testing` branch only, not published)
+## 0.9.32
 
 - The window at the other end shows the place you just left within a moment of arriving. The capture's layers are now built on several cores while the screen is black and handed to the window straight from memory; the files are written afterwards in the background. Before, the window waited for the files, four to nine seconds after you had arrived.
 - The gloss on the pane, for real: the map that zeroed the shader's metal and gloss inputs had alpha 1, which these shaders read as full smoothness. It is fully clear now.
 
-## 0.9.31 (TESTING: on the `testing` branch only, not published)
+## 0.9.31
 
 - Stepping into a portal no longer hitches: the one-frame departure capture of 0.9.29 and 0.9.30 is gone. The game moves you two seconds after you step in, never sooner, so a departure capture spread over frames has all the time it needs.
 - The departure capture that went missing after a quick return trip is fixed for real. Arriving and stepping straight back in, the arrival capture's files were still being written, and the departure capture waited for that and found the place gone. It now renders at once and only its writing waits.
 
-## 0.9.30 (TESTING: on the `testing` branch only, not published)
+## 0.9.30
 
 - Departure captures read the GPU on the spot instead of asynchronously: rendered in one frame, they queued over a hundred asynchronous reads at once, more than the GPU hands back, and the capture was lost. Arrivals, spread over frames, keep the asynchronous reads.
 
-## 0.9.29 (TESTING: on the `testing` branch only, not published)
+## 0.9.29
 
 - Departure captures no longer lose the race against a fast teleport. With the far side already loaded the game moves you and unloads the place within a moment of stepping in, and a capture spread over several frames found "the portal went away". A departure capture now renders all its faces in one frame, 0.2 s after stepping in (`DepartureDelay`, brought down from 0.8 in existing configs), under the fade.
 - A capture whose GPU read-back fails is retried once straight away with plain reads instead of being lost.
 
-## 0.9.28 (TESTING: on the `testing` branch only, not published)
+## 0.9.28
 
 - The glossy sheen is gone for real. It was the flame glow pass: meant to blur only the far side's flames over the pane, it also caught the far side's grass and the reliefs, so a blurred copy of the picture lay over it. The pass now runs with everything but the flames switched off, before the grass is queued.
 
-## 0.9.27 (TESTING: on the `testing` branch only, not published)
+## 0.9.27
 
 - A window no longer blows out into blocks. A capture taken in near darkness and seen later under a moon was brightened up to four times; an 8-bit night picture has nothing to brighten and came out as green blocks. Any tint now brightens by at most 1.5; dimming is unchanged.
 
-## 0.9.26 (TESTING: on the `testing` branch only, not published)
+## 0.9.26
 
 - The departure capture no longer goes missing on quick trips. It waited 0.8 s and then only fired if you were still mid-teleport; between portals in one base the game's fast load has already moved you by then, so the place you came from was never captured until a second trip. It now fires either way. A capture that arrives while the previous one of the same portal is still being stored waits for it instead of being dropped.
 
-## 0.9.25 (TESTING: on the `testing` branch only, not published)
+## 0.9.25
 
 - No dark outline round the clouds. The live clouds leave the window texture's alpha below one at their soft edges and the picture sprite blends by that alpha, against a black plug. The plug now shows the picture as emission as well, so those edges show the same colour through instead of black.
 
-## 0.9.24 (TESTING: on the `testing` branch only, not published)
+## 0.9.24
 
 - No more glossy sheen on the window. The game shader the pane and reliefs are drawn with keeps its shine in inputs of its own (`_MetallicGlossMap`, `_MetalColor`), which were left at their defaults, so once the pane had real normals (0.9.22) the torches by the ring reflected off it. Every metal, gloss and specular input of the shader is now black.
 
-## 0.9.23 (TESTING: on the `testing` branch only, not published)
-
-Not yet better than 0.9.22. Everything here is unconfirmed in game.
+## 0.9.23
 
 - Night: far hills, fog and baked sky no longer stand pale ("white ghostly stuff in the distance"): the sky-light pass is rendered with black fog, so the fog's own colour is not counted as sky-lit. Needs a recapture.
 - Grass in the window is dimmed by a factor measured at capture time (how the game shows grass there, with fog, occlusion and shadows, against how the window draws it, bare). At night it stood in the window as bright green blocks. Needs a recapture.

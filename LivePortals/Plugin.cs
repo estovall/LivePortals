@@ -229,7 +229,7 @@ namespace LivePortals
             LiveFireMax = Config.Bind("5. Performance", "LiveFireMax", 32,
                 new ConfigDescription("Most flame effects one window plays (the nearest to the far portal are kept).",
                     new AcceptableValueRange<int>(0, 200)));
-            FlameBloom = Config.Bind("4. Look", "FlameBloom", 4f,
+            FlameBloom = Config.Bind("4. Look", "FlameBloom", 0f,
                 new ConfigDescription("How far above white the flames in a window are pushed, so the game's bloom glows around them as it does around real fires (the window's picture itself cannot hold anything brighter than white). 0 = off. Costs a third, small render per redraw of a window with fires in it.",
                     new AcceptableValueRange<float>(0f, 6f)));
             // 0.9.22 shipped 2; Max: "the bloom needs cranking up".
