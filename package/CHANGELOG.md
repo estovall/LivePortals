@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.40 (TESTING: not published)
+
+- A `Quality` setting with Low, Medium and High presets sets the capture and window resolution, the viewpoints, the number of windows kept and redrawn, and the background threads together. Medium is the default for new installs (512 px, two viewpoints, six windows, one redraw per frame at 30 Hz, two threads); existing configs are set to High, which is exactly what they ran before. Custom leaves the individual settings alone.
+- No more periodic hitch in big bases: the mod tracked lights by scanning every object every two seconds (since 0.9.38); it now notes them as the game creates its objects. A torch placed during the session lights windows until the next login.
+
 ## 0.9.39
 
 Released with everything from 0.9.23 up, tested on Max's server over 2026-09-18.

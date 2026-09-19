@@ -509,18 +509,25 @@ namespace LivePortals
         private static readonly List<Light> _lightsOff = new List<Light>();
         private static float _sceneLightsAt = -10f;
 
+        /// <summary>Lights the game creates with its world objects (see Patches.ZNetScene_CreateObject); a scan of the whole scene every two seconds (0.9.38) was a hitch in a big base.</summary>
+        internal static void RegisterLights(GameObject go)
+        {
+            if (go == null) return;
+            foreach (var l in go.GetComponentsInChildren<Light>(true))
+                if (l.type != LightType.Directional) _sceneLights.Add(l);
+        }
+
         private static void LightsOff()
         {
-            if (Time.time - _sceneLightsAt > 2f)
+            if (Time.time - _sceneLightsAt > 30f)
             {
+                // Lights whose objects the game has since unloaded drop out of the list.
                 _sceneLightsAt = Time.time;
-                _sceneLights.Clear();
-                foreach (var l in Object.FindObjectsByType<Light>(FindObjectsSortMode.None))
-                    if (l.type != LightType.Directional) _sceneLights.Add(l);
+                _sceneLights.RemoveAll(l => l == null);
             }
             _lightsOff.Clear();
             foreach (var l in _sceneLights)
-                if (l != null && l.enabled) { l.enabled = false; _lightsOff.Add(l); }
+                if (l != null && l.enabled && l.isActiveAndEnabled) { l.enabled = false; _lightsOff.Add(l); }
         }
 
         private static void LightsBack()

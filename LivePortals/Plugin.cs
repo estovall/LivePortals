@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "Immersive Portals";
-        public const string VERSION = "0.9.39";
+        public const string VERSION = "0.9.40";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -30,6 +30,7 @@ namespace LivePortals
 
         // ---- Config ----
         internal static ConfigEntry<bool> Enabled;
+        internal static ConfigEntry<QualityOption> Quality;
         internal static ConfigEntry<int> CaptureResolution;
         internal static ConfigEntry<int> CapturePoints;
         internal static ConfigEntry<int> WindowResolution;
@@ -118,6 +119,8 @@ namespace LivePortals
             Log = Logger;
 
             Enabled = Config.Bind("1. General", "Enabled", true, "Master switch.");
+            Quality = Config.Bind("1. General", "Quality", QualityOption.Medium,
+                "Sets the capture and window resolution, the viewpoints per capture, how many windows are kept and redrawn, and the background threads, together. Medium suits a mid-range PC; High is for a strong one (8 GB card, 8+ cores); Low for a weak one. Custom leaves the individual settings below alone.");
             CaptureResolution = Config.Bind("1. General", "CaptureResolution", 768,
                 new ConfigDescription("Pixels per cube face captured at a portal. 1024 costs almost twice the disk and memory of 768.",
                     new AcceptableValueRange<int>(128, 1024)));
@@ -268,6 +271,10 @@ namespace LivePortals
             MaxWindowFps = Config.Bind("5. Performance", "MaxWindowFps", 60,
                 new ConfigDescription("The nearest window is redrawn at most this often while you move (the others 30 times a second). A redraw is 1 to 2 ms of the main thread; at 120 fps and up, redrawing every frame doubles that cost for a difference nobody sees.",
                     new AcceptableValueRange<int>(20, 500)));
+            // Files from before the presets keep what they ran with: High is exactly the old defaults.
+            if (configVersion.Value >= 1 && configVersion.Value < 6) Quality.Value = QualityOption.High;
+            if (configVersion.Value < 6) configVersion.Value = 6;
+            ApplyQuality();
             DebugLog = Config.Bind("6. Debug", "DebugLog", false, "Verbose logging of captures and windows. With TuneKeys it also enables numpad + - * / (diagnostics that switch the picture's draw order, the depth plug, and the game's ambient occlusion and post-processing).");
 
             _harmony = new Harmony(GUID);
@@ -278,6 +285,9 @@ namespace LivePortals
             var awake = AccessTools.Method(typeof(TeleportWorld), "Awake");
             if (awake != null) { _harmony.Patch(awake, postfix: new HarmonyMethod(typeof(Patches), nameof(Patches.TeleportWorld_Awake))); _portalsTracked = true; }
             else Log.LogWarning("LivePortals: TeleportWorld.Awake not found; portals are found by scanning the scene instead.");
+            var create = AccessTools.Method(typeof(ZNetScene), "CreateObject", new[] { typeof(ZDO) });
+            if (create != null) _harmony.Patch(create, postfix: new HarmonyMethod(typeof(Patches), nameof(Patches.ZNetScene_CreateObject)));
+            else Log.LogWarning("LivePortals: ZNetScene.CreateObject not found; windows will be lit by nearby torches.");
             Log.LogInfo($"LivePortals {VERSION} loaded.");
         }
 
@@ -292,6 +302,28 @@ namespace LivePortals
             player.Message(MessageHud.MessageType.Center, "LivePortals: " + what);
             Log.LogInfo("LivePortals diag: " + what);
         }
+
+        /// <summary>The preset's values into the individual settings (saved, so the file shows what runs). Custom: as they are.</summary>
+        private static void ApplyQuality()
+        {
+            switch (Quality.Value)
+            {
+                case QualityOption.Low:
+                    Set(CaptureResolution, 384); Set(WindowResolution, 384); Set(CapturePoints, 1); Set(MaxWindows, 4); Set(MaxRendersPerFrame, 1);
+                    Set(MaxWindowFps, 20); Set(CaptureThreads, 1); Set(GrassMaxInstances, 1200); Set(HalfResSecondaries, true);
+                    break;
+                case QualityOption.Medium:
+                    Set(CaptureResolution, 512); Set(WindowResolution, 512); Set(CapturePoints, 2); Set(MaxWindows, 6); Set(MaxRendersPerFrame, 1);
+                    Set(MaxWindowFps, 30); Set(CaptureThreads, 2); Set(GrassMaxInstances, 2500); Set(HalfResSecondaries, true);
+                    break;
+                case QualityOption.High:
+                    Set(CaptureResolution, 768); Set(WindowResolution, 768); Set(CapturePoints, 4); Set(MaxWindows, 8); Set(MaxRendersPerFrame, 2);
+                    Set(MaxWindowFps, 60); Set(CaptureThreads, 3); Set(GrassMaxInstances, 4000); Set(HalfResSecondaries, true);
+                    break;
+            }
+        }
+
+        private static void Set<T>(ConfigEntry<T> e, T v) { if (!Equals(e.Value, v)) e.Value = v; }
 
         internal static void Dbg(string msg)
         {
@@ -601,9 +633,15 @@ namespace LivePortals
     }
 
     public enum PaneStyleOption { Sprite, Emissive }
+    public enum QualityOption { Low, Medium, High, Custom }
 
     internal static class Patches
     {
+        internal static void ZNetScene_CreateObject(GameObject __result)
+        {
+            PortalWindow.RegisterLights(__result);
+        }
+
         internal static void TeleportWorld_Awake(TeleportWorld __instance)
         {
             if (__instance != null && !Plugin.Portals.Contains(__instance)) Plugin.Portals.Add(__instance);

@@ -686,6 +686,13 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     flame ParticleSystems are paused unless the window was drawn within the last second (Fire.Build sets
     AlwaysSimulate, so nothing else stops them). If the hub still drops: texture memory (704 MB: half-res for far
     windows, fewer viewpoints) and the number of loaded windows are the next levers. **Untested.**
+72. 0.9.40 testing: Max: "lots of complaints about game stuttering" from other players on 0.9.39. Two things done
+    blind (no logs from them yet): (a) `LightsOff` no longer scans (`FindObjectsByType<Light>` every 2 s, added
+    in 0.9.38, is a hitch in a big base); `Patches.ZNetScene_CreateObject` registers lights of created objects
+    (`PortalWindow.RegisterLights`), pruned every 30 s; pieces placed locally bypass CreateObject until reload.
+    (b) `Quality` presets (`Plugin.ApplyQuality`): Low 384/1 viewpoint/4 windows/20 Hz/1 thread, Medium
+    512/2/6/1 redraw/30 Hz/2 threads (default for new files), High = the old defaults; ConfigVersion 6 sets
+    existing files to High. Ask the complainers for version, when it stutters, PerfLog logs and specs. **Untested.**
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 
