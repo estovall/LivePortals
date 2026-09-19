@@ -189,16 +189,25 @@ namespace LivePortals
             float range = act * Plugin.RangeMultiplier.Value;
             float full = act * Plugin.FullMultiplier.Value;
             if (dist > range + 3f + PreloadMargin) { Destroy(this); return; } // walked away; the scan re-adds us when we come back
-            // Standing in the ring, or being sent through it, the window is off: the camera sits on the far side of
-            // the pane then and would look at the back of the picture instead of at the player. As in vanilla, the
-            // swirl plays around the player.
-            if (dist < 3f)
+            // Stepping into the ring, the pane backs away from you: it stays about 0.7 m beyond you, on the far
+            // side from the camera, and grows to keep filling the frame from the camera's eye. You walk into the
+            // picture while the game's fade runs, the swirl playing around you; the camera behind you never sits on
+            // the far side of the pane looking at its back. (0.9.43 switched the window off here, and the far side
+            // vanished the instant you stepped in.)
+            float recessTarget = 0f;
+            if (dist < 4f)
             {
                 Vector3 c0 = PortalShape.Of(_tw).Centre, n0 = transform.forward;
                 Vector3 d0 = player.transform.position + Vector3.up - c0;
                 float along = Vector3.Dot(d0, n0);
-                if ((Mathf.Abs(along) < 1.1f && (d0 - n0 * along).magnitude < 1.6f) || player.IsTeleporting()) { Hide(); return; }
+                if ((d0 - n0 * along).magnitude < 1.6f || player.IsTeleporting())
+                {
+                    float side = Vector3.Dot(gc.m_camera.transform.position - c0, n0) >= 0f ? 1f : -1f;
+                    float u = along * side; // how far you stand on the camera's side of the pane (negative: through it)
+                    recessTarget = Mathf.Clamp(0.7f - u, 0f, 1.6f);
+                }
             }
+            _recess = Mathf.MoveTowards(_recess, recessTarget, Time.deltaTime * 4f);
             float alpha = range <= full ? (dist <= range ? 1f : 0f) : Mathf.Clamp01((range - dist) / (range - full));
             alpha = 1f - (1f - alpha) * (1f - alpha); // ease in: half visible a third of the way in
 
@@ -300,6 +309,8 @@ namespace LivePortals
 
         private bool _poseReady;
         private Vector3 _gC, _gN, _gUp, _gRight;
+        /// <summary>How far the pane sits behind the frame, away from the camera, while the player stands in the ring (see Update).</summary>
+        private float _recess;
         private float _gW, _gH, _gAlpha;
         private Quaternion _gRA, _gRB;
         private bool _gGlass;
@@ -324,6 +335,7 @@ namespace LivePortals
             Vector3 pe = main.transform.position;
             bool realFront = Vector3.Dot(pe - c, n) >= 0f;
             bool front = realFront;
+            if (_recess > 0f) c -= n * (realFront ? _recess : -_recess); // the whole window, reliefs included, moves back with the pane
             if (!realFront && Plugin.ArrivalViewBothSides.Value && !glass)
             {
                 // The game always drops you at the partner's front, so from behind show the same front view,
@@ -331,7 +343,15 @@ namespace LivePortals
                 pe = pe - 2f * Vector3.Dot(pe - c, n) * n;
                 front = true;
             }
-            Vector3 hr = right * (w * 0.5f), hu = up * (h * 0.5f);
+            // A recessed pane is scaled up so that, from the eye, it still fills the frame's opening.
+            float paneScale = 1f;
+            if (_recess > 0f)
+            {
+                float toPane = Mathf.Abs(Vector3.Dot(pe - c, n));
+                paneScale = Mathf.Clamp(toPane / Mathf.Max(0.05f, toPane - _recess), 1f, 3f);
+            }
+            float ws = w * paneScale, hs = h * paneScale;
+            Vector3 hr = right * (ws * 0.5f), hu = up * (hs * 0.5f);
             Vector3 pa, pb, pc; // lower-left, lower-right, upper-left as the viewer sees them
             if (front) { pa = c + hr - hu; pb = c - hr - hu; pc = c + hr + hu; }
             else { pa = c - hr - hu; pb = c + hr - hu; pc = c - hr + hu; }
@@ -391,7 +411,7 @@ namespace LivePortals
             // from the G-buffer as fully occluded and multiplied the plug, and the picture drawn over it before the
             // screen effects, to black (the stone portal at night; numpad * and + in the second 0.9.22 build).
             float sz = realFront ? -1f : 1f;
-            _pane.transform.localScale = new Vector3(front ? -w : w, h, sz);
+            _pane.transform.localScale = new Vector3(front ? -ws : ws, hs, sz);
             // The plug and the picture dissolve in as the same blocks (see Dissolve): the picture is cut per cell,
             // never half transparent.
             if (_paneSolid) WindowMaterial.SetPaneVisible(_paneMat, alpha);

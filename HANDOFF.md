@@ -736,6 +736,17 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     line still shows collections with long frames: the remaining allocations are Grass/Fire records, ReliefMesh
     data, the loader's mesh building; if it shows long frames without collections, it is main-thread work
     (window builds, uploads, the capture's own frames).
+78. 0.9.46 testing: Max on 0.9.45: "the instant I go through the portal the view goes away while the portal
+    screen fades to black, which kinda breaks the immersion". Two causes: the 0.9.43 in-ring Hide (also on
+    IsTeleporting), and the departure capture at 0.2 s hiding the player, the portal and all windows for its
+    render frames while the fade (Hud.UpdateBlackScreen: MoveTowards 1 over GetFadeDuration = 1 s) is still
+    transparent. Done: `PortalWindow._recess` (Update: when the player is within 1.6 m laterally of the ring or
+    teleporting, target = clamp(0.7 - u, 0, 1.6) where u = the player's signed distance on the camera's side;
+    MoveTowards 4 m/s); Refresh moves c back by the recess on the camera's far side (reliefs follow) and scales
+    the pane by toPane / (toPane - recess) so it keeps filling the frame from the eye. `DepartureDelay` default
+    1.0 s (configVersion 7 raises values under 1.0); Player.UpdateTeleport never moves before 2 s and
+    HoldTeleportForCapture still clamps at 1.5 s while rendering. **Untested.** If the frame's inner edge shows a
+    gap at oblique angles with the pane recessed, raise the scale clamp or cap the recess lower.
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

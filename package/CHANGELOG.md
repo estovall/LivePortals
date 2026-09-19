@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.46 (TESTING: not published)
+
+- Stepping into a portal no longer switches its window off. The pane backs away from you instead, staying about 0.7 m beyond you and growing to keep filling the frame, so you walk into the picture while the game fades to black, with the swirl around you. The camera behind you still never looks at the back of the picture.
+- The departure capture now starts one second after stepping in, when the game's fade is fully black, instead of at 0.2 s. The capture hides you, the portal and the windows for the frames it renders, and at 0.2 s that blink was in plain view. The teleport is still held until the capture has rendered.
+
 ## 0.9.45 (TESTING: not published)
 
 - Less stutter in the seconds after a trip. A capture allocated close to a gigabyte of short-lived arrays (the pixels read back from the GPU, the sky mask, the depth, every layer, every PNG), and each of the collector's passes over them stopped the game. The capture pipeline now reuses its arrays (a pool of up to 160 MB) and encodes its PNGs without managed buffers.

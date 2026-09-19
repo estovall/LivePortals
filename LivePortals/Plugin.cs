@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "Immersive Portals";
-        public const string VERSION = "0.9.45";
+        public const string VERSION = "0.9.46";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -199,10 +199,11 @@ namespace LivePortals
                     new AcceptableValueRange<float>(-1f, 1f)));
             CaptureOnDeparture = Config.Bind("3. Capture", "CaptureOnDeparture", true, "Capture the portal you leave through (feeds the window at its partner).");
             CaptureOnArrival = Config.Bind("3. Capture", "CaptureOnArrival", true, "Capture the portal you arrive at (feeds the window at the one you came from).");
-            DepartureDelay = Config.Bind("3. Capture", "DepartureDelay", 0.2f,
-                new ConfigDescription("Seconds after stepping in before the departure capture. Short: with the far side already loaded the game moves you and unloads this place within a moment of stepping in, and a capture that starts too late finds nothing. The capture itself takes one frame on departure.",
+            DepartureDelay = Config.Bind("3. Capture", "DepartureDelay", 1f,
+                new ConfigDescription("Seconds after stepping in before the departure capture. The game's fade to black takes one second, and the capture hides you, the portal and the windows for the few frames it renders: at 1.0 it renders under a black screen. The game never moves you before two seconds, and the mod holds the teleport until the capture has rendered.",
                     new AcceptableValueRange<float>(0f, 1.8f)));
             if (configVersion.Value < 4) { if (DepartureDelay.Value > 0.2f) DepartureDelay.Value = 0.2f; configVersion.Value = 4; }
+            if (configVersion.Value < 7) { if (DepartureDelay.Value < 1f) DepartureDelay.Value = 1f; configVersion.Value = 7; }
             RecaptureAfter = Config.Bind("3. Capture", "RecaptureAfter", 300,
                 new ConfigDescription("A portal captured within this many seconds, at about the same time of day, is not captured again on the next trip through it: bouncing between two portals, or through a hub, costs nothing after the first pass. 0 = capture every trip.",
                     new AcceptableValueRange<int>(0, 3600)));
