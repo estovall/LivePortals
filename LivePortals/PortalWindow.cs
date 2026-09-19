@@ -240,7 +240,11 @@ namespace LivePortals
                 else
                 {
                     long stored = Storage.StoredTime(target);
-                    if (stored != _capTime && !(stored < _capTime && _loader != null))
+                    // An older stored capture never replaces what is shown or loading: after a trip the files of the
+                    // capture just taken land seconds after its layers, and up to 0.9.46 the window, having shown
+                    // those layers, fell back to the old files in between and then loaded the new ones (three loads,
+                    // three sets of reliefs and flames, the old view flashing by).
+                    if (stored != _capTime && !(stored < _capTime && (_loader != null || _set != null)))
                     {
                         ReleaseCapture();
                         _capTime = stored;

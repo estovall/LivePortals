@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.47 (TESTING: not published)
+
+- After a trip, the window at the arrival portal loaded its new capture three times: from memory a moment after arriving, then again from the old files on disk while the new files were still being written (the old view flashing by), then from the new files. An older stored capture no longer replaces what a window already shows. One load per trip, one set of meshes and flames.
+
 ## 0.9.46 (TESTING: not published)
 
 - Stepping into a portal no longer switches its window off. The pane backs away from you instead, staying about 0.7 m beyond you and growing to keep filling the frame, so you walk into the picture while the game fades to black, with the swirl around you. The camera behind you still never looks at the back of the picture.

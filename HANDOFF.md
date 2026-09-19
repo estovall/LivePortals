@@ -747,6 +747,12 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     1.0 s (configVersion 7 raises values under 1.0); Player.UpdateTeleport never moves before 2 s and
     HoldTeleportForCapture still clamps at 1.5 s while rendering. **Untested.** If the frame's inner edge shows a
     gap at oblique angles with the pane recessed, raise the scale clamp or cap the recess lower.
+79. 0.9.47 testing: the 0.9.44 log (bouncing 1_441084 <-> 1_441090) showed "window at 1_441090 shows capture
+    1_441084" three times per trip: FromMemory (capTime = new TakenAt), then, once that loader was null, the
+    else branch saw stored (old takenAt) != capTime with no loader and reloaded the OLD files, then the new
+    files when stored. Fix: an older stored time never replaces a shown or loading set
+    (`!(stored < _capTime && (_loader != null || _set != null))`). Each spurious load rebuilt reliefs, uploaded
+    textures and rebuilt 32 flame effects right after arrival: a real part of the post-trip stutter. **Untested.**
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 
