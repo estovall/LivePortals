@@ -157,6 +157,14 @@ namespace LivePortals
         public float[] FlameDepth; // per pixel, the depth of the fire whose flame this pixel shows, else 0; null when there are no flames
         public bool[] Sky;
         public float[] Depth;   // view depth in metres per pixel, DepthRange on sky and beyond
+
+        /// <summary>After Layers.Process: everything back to the pool.</summary>
+        internal void Release()
+        {
+            Pool<Color32>.Return(Col); Pool<Color32>.Return(Local); Pool<Color32>.Return(Ambient);
+            Pool<bool>.Return(Sky); Pool<float>.Return(Depth); Pool<float>.Return(FlameDepth);
+            Col = Local = Ambient = null; Sky = null; Depth = FlameDepth = null;
+        }
     }
 
     internal class RawPoint
@@ -702,7 +710,8 @@ namespace LivePortals
             RenderTexture.active = rt;
             into.ReadPixels(new Rect(0, 0, res, res), 0, 0, false);
             RenderTexture.active = null;
-            if (slot == 3 || slot == 6) f.SetDepth(slot, into.GetPixelData<float>(0).ToArray()); else f.Set(slot, into.GetPixels32());
+            if (slot == 3 || slot == 6) { var src = into.GetPixelData<float>(0); var d = Pool<float>.RentDirty(src.Length); src.CopyTo(d); f.SetDepth(slot, d); }
+            else { var src = into.GetPixelData<Color32>(0); var a = Pool<Color32>.RentDirty(src.Length); src.CopyTo(a); f.Set(slot, a); }
         }
 
         /// <summary>
@@ -727,11 +736,11 @@ namespace LivePortals
             bool rays = gpu == null;
             // The light renders come at half the size (0.9.44): light is smooth, and the two of them were a third
             // of a face's GPU time at full size. Up to the picture's size here, so the rest is as before.
-            var local = Upsample(f.RawLocal, res); f.RawLocal = local;
-            var noSun = Upsample(f.RawNoSun, res); f.RawNoSun = noSun;
-            Color32[] ambient = noSun != null ? new Color32[res * res] : null;
+            var local = Upsample(f.RawLocal, res); if (local != f.RawLocal) { Pool<Color32>.Return(f.RawLocal); f.RawLocal = local; }
+            var noSun = Upsample(f.RawNoSun, res); if (noSun != f.RawNoSun) { Pool<Color32>.Return(f.RawNoSun); f.RawNoSun = noSun; }
+            Color32[] ambient = noSun != null ? Pool<Color32>.Rent(res * res) : null;
             long lumSum = 0, rSum = 0, gSum = 0, bSum = 0, localSum = 0, ambSum = 0; int count = 0;
-            var sky = new bool[res * res];
+            var sky = Pool<bool>.Rent(res * res);
             int diffSky = 0;
             for (int p = 0; p < col.Length; p++)
             {
@@ -815,7 +824,7 @@ namespace LivePortals
                 // Where a pixel is mostly flame, note the depth of its fire's stand-in (if nearer than what was
                 // behind). Layers decides where to use it: only in cells that hold no other near thing, or the
                 // cell's whole chunk of pillar would come forward with the flame (0.9.11 to 0.9.16).
-                var fd = new float[res * res];
+                var fd = Pool<float>.Rent(res * res);
                 bool any = false;
                 for (int p = 0; p < res * res; p++)
                 {
@@ -831,7 +840,7 @@ namespace LivePortals
                     any = true;
                     if (sky[p]) { sky[p] = false; Color32 c = col[p]; c.a = 255; col[p] = c; }
                 }
-                if (any) raw.FlameDepth = fd;
+                if (any) raw.FlameDepth = fd; else Pool<float>.Return(fd);
             }
             if (f.Face == 0)
             {
@@ -861,7 +870,7 @@ namespace LivePortals
         {
             if (src == null || src.Length != (res / 2) * (res / 2)) return src;
             int h = res / 2;
-            var outp = new Color32[res * res];
+            var outp = Pool<Color32>.RentDirty(res * res);
             for (int y = 0; y < res; y++)
             {
                 // Sample centres: output pixel y sits at (y + 0.5) / 2 - 0.5 in the small image.
@@ -1034,7 +1043,7 @@ namespace LivePortals
         /// <summary>Device depth to view depth in metres, clamped to the range; sky at the range; the sea surface (which draws without depth) from its plane.</summary>
         private static float[] MetricDepth(float[] gpu, bool[] sky, int res, float far, float range, Vector3 origin, Quaternion faceRot, float waterLevel)
         {
-            var depth = new float[res * res];
+            var depth = Pool<float>.Rent(res * res);
             // World-space height per unit of view depth along each pixel's ray: y of faceRot * (lx, ly, 1).
             float yx = (faceRot * Vector3.right).y, yy = (faceRot * Vector3.up).y, yz = (faceRot * Vector3.forward).y;
             float above = origin.y - waterLevel;

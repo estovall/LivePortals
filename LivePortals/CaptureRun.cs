@@ -52,6 +52,29 @@ namespace LivePortals
         // ---- The result in memory, for the window at the other end to show before the files are written ----
         /// <summary>The layers of every face, [point][face], once Ready. The window loads from these; the files follow.</summary>
         internal FaceLayers[][] Layers;
+        private FaceLayers[][] _layers;
+        // The layers' arrays go back to the pool when the run is done with them and no loader reads them any more.
+        private int _layerHolds = 1;
+
+        /// <summary>Keep the layers' arrays alive for a reader (a loader). False when they are already gone: load the files instead.</summary>
+        internal bool HoldLayers()
+        {
+            while (true)
+            {
+                int h = Volatile.Read(ref _layerHolds);
+                if (h <= 0) return false;
+                if (Interlocked.CompareExchange(ref _layerHolds, h + 1, h) == h) return true;
+            }
+        }
+
+        /// <summary>The reader is done. The last one out returns the arrays to the pool.</summary>
+        internal void DropLayers()
+        {
+            if (Interlocked.Decrement(ref _layerHolds) != 0) return;
+            var ls = _layers;
+            if (ls == null) return;
+            foreach (var pt in ls) if (pt != null) foreach (var l in pt) if (l != null) l.Release();
+        }
         internal volatile bool Ready;
         internal ZDOID Id => _id;
         internal List<RawPoint> PointList => _points;
@@ -223,6 +246,7 @@ namespace LivePortals
                 var layers = new FaceLayers[_points.Count][];
                 var grids = new FaceGrids[_points.Count][];
                 for (int k = 0; k < layers.Length; k++) { layers[k] = new FaceLayers[6]; grids[k] = new FaceGrids[6]; }
+                _layers = layers;
                 while (true)
                 {
                     FaceRaw f = null;
@@ -247,6 +271,7 @@ namespace LivePortals
                             face.Composed = null;
                             face.Release();
                             var l = LivePortals.Layers.Process(raw, pt.Res, pt.Step, pt.DepthRange);
+                            raw.Release();
                             l.Grids.Tan = pt.FaceTan;
                             layers[face.PointIndex][face.Face] = l;
                             grids[face.PointIndex][face.Face] = l.Grids;
@@ -297,6 +322,7 @@ namespace LivePortals
                 WorkSeconds = sw.Elapsed.TotalSeconds;
                 lock (_readyRuns) if (_readyRuns.TryGetValue(_id, out var r) && r == this) _readyRuns.Remove(_id);
                 Done = true;
+                DropLayers();
             }
         }
     }
@@ -340,12 +366,19 @@ namespace LivePortals
                 var r = Req[s];
                 if (!r.done) return false;
                 if (r.hasError) { Error = true; return true; }
-                if (s == 3 || s == 6) SetDepth(s, r.GetData<float>().ToArray()); else Set(s, r.GetData<Color32>().ToArray());
+                if (s == 3 || s == 6) { var src = r.GetData<float>(); var d = Pool<float>.RentDirty(src.Length); src.CopyTo(d); SetDepth(s, d); }
+                else { var src = r.GetData<Color32>(); var a = Pool<Color32>.RentDirty(src.Length); src.CopyTo(a); Set(s, a); }
                 Issued[s] = false;
             }
             return Ready;
         }
 
-        public void Release() { RawCol = SkyA = SkyB = RawLocal = RawNoSun = FlameMask = null; Gpu = null; ProxyGpu = null; }
+        /// <summary>After Compose: what it consumed goes back to the pool. The colour and the local light live on in the RawFace (see RawFace.Release).</summary>
+        public void Release()
+        {
+            Pool<Color32>.Return(SkyA); Pool<Color32>.Return(SkyB); Pool<Color32>.Return(RawNoSun); Pool<Color32>.Return(FlameMask);
+            Pool<float>.Return(Gpu); Pool<float>.Return(ProxyGpu);
+            RawCol = SkyA = SkyB = RawLocal = RawNoSun = FlameMask = null; Gpu = null; ProxyGpu = null;
+        }
     }
 }

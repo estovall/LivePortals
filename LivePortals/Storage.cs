@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using BepInEx;
+using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 
@@ -111,6 +112,44 @@ namespace LivePortals
             return new Job { Dir = Dir(), Key = Key(id) };
         }
 
+        private static volatile bool _nativePng = true;
+
+        /// <summary>
+        /// A square RGBA image to a PNG file. Through native arrays when it can: the managed encoder hands back a
+        /// megabyte-odd byte[] per file, a hundred files per capture, and the collector's passes over those are
+        /// stutter on the main thread. Falls back to the managed encoder for good if the native path throws.
+        /// </summary>
+        private static void WritePng(string path, Color32[] px, int side)
+        {
+            if (_nativePng)
+            {
+                try { WritePngNative(path, px, side); return; }
+                catch (Exception e)
+                {
+                    _nativePng = false;
+                    Plugin.Log.LogWarning("LivePortals: PNG encoding through native arrays failed (" + e.GetType().Name + ": " + e.Message + "); using the managed encoder from now on.");
+                }
+            }
+            File.WriteAllBytes(path, ImageConversion.EncodeArrayToPNG(px, GraphicsFormat.R8G8B8A8_SRGB, (uint)side, (uint)side));
+        }
+
+        private static void WritePngNative(string path, Color32[] px, int side)
+        {
+            var input = new NativeArray<Color32>(px, Allocator.Persistent);
+            try
+            {
+                var png = ImageConversion.EncodeNativeArrayToPNG(input, GraphicsFormat.R8G8B8A8_SRGB, (uint)side, (uint)side);
+                try
+                {
+                    if (png.Length == 0) throw new InvalidOperationException("the encoder returned nothing");
+                    using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16))
+                        fs.Write(png.AsReadOnlySpan());
+                }
+                finally { png.Dispose(); }
+            }
+            finally { input.Dispose(); }
+        }
+
         /// <summary>Remove this portal's stored capture. The meta file, which is what makes a set visible, goes first and is written back last.</summary>
         internal static void Clear(Job job)
         {
@@ -119,20 +158,15 @@ namespace LivePortals
             foreach (var f in Directory.GetFiles(job.Dir, job.Key + "_p*")) File.Delete(f);
         }
 
-        /// <summary>Encodes from plain arrays (EncodeArrayToPNG is thread safe).</summary>
+        /// <summary>Encodes from plain arrays (the encoders are thread safe).</summary>
         internal static void SaveFace(Job job, int p, int i, FaceLayers face, int res)
         {
-            File.WriteAllBytes(FacePath(job.Dir, job.Key, p, i), ImageConversion.EncodeArrayToPNG(face.Back, GraphicsFormat.R8G8B8A8_SRGB, (uint)res, (uint)res));
-            if (face.Front != null)
-                File.WriteAllBytes(FrontPath(job.Dir, job.Key, p, i), ImageConversion.EncodeArrayToPNG(face.Front, GraphicsFormat.R8G8B8A8_SRGB, (uint)res, (uint)res));
-            if (face.Local != null && p == 0)
-                File.WriteAllBytes(LocalPath(job.Dir, job.Key, p, i), ImageConversion.EncodeArrayToPNG(face.Local, GraphicsFormat.R8G8B8A8_SRGB, (uint)face.LocalRes, (uint)face.LocalRes));
-            if (face.LocalFront != null && p == 0)
-                File.WriteAllBytes(LocalFrontPath(job.Dir, job.Key, p, i), ImageConversion.EncodeArrayToPNG(face.LocalFront, GraphicsFormat.R8G8B8A8_SRGB, (uint)face.LocalRes, (uint)face.LocalRes));
-            if (face.Ambient != null && p == 0)
-                File.WriteAllBytes(AmbientPath(job.Dir, job.Key, p, i), ImageConversion.EncodeArrayToPNG(face.Ambient, GraphicsFormat.R8G8B8A8_SRGB, (uint)res, (uint)res));
-            if (face.AmbientFront != null && p == 0)
-                File.WriteAllBytes(AmbientFrontPath(job.Dir, job.Key, p, i), ImageConversion.EncodeArrayToPNG(face.AmbientFront, GraphicsFormat.R8G8B8A8_SRGB, (uint)res, (uint)res));
+            WritePng(FacePath(job.Dir, job.Key, p, i), face.Back, res);
+            if (face.Front != null) WritePng(FrontPath(job.Dir, job.Key, p, i), face.Front, res);
+            if (face.Local != null && p == 0) WritePng(LocalPath(job.Dir, job.Key, p, i), face.Local, face.LocalRes);
+            if (face.LocalFront != null && p == 0) WritePng(LocalFrontPath(job.Dir, job.Key, p, i), face.LocalFront, face.LocalRes);
+            if (face.Ambient != null && p == 0) WritePng(AmbientPath(job.Dir, job.Key, p, i), face.Ambient, res);
+            if (face.AmbientFront != null && p == 0) WritePng(AmbientFrontPath(job.Dir, job.Key, p, i), face.AmbientFront, res);
         }
 
         internal static void SavePoint(Job job, int p, RawPoint pt, FaceGrids[] grids)

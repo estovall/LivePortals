@@ -20,6 +20,14 @@ namespace LivePortals
         /// soft edges against the picture's sharp ones drew a pale outline round every branch (0.9.22, at dusk).
         /// </summary>
         public Color32[] Ambient, AmbientFront;
+
+        /// <summary>The arrays back to the pool (see CaptureRun.DropLayers). Nothing may read them after this.</summary>
+        internal void Release()
+        {
+            Pool<Color32>.Return(Back); Pool<Color32>.Return(Front); Pool<Color32>.Return(Local); Pool<Color32>.Return(LocalFront);
+            Pool<Color32>.Return(Ambient); Pool<Color32>.Return(AmbientFront);
+            Back = Front = Local = LocalFront = Ambient = AmbientFront = null;
+        }
         public FaceGrids Grids;
     }
 
@@ -70,7 +78,7 @@ namespace LivePortals
             float[] D = raw.Depth;
             bool[] sky = raw.Sky;
             Color32[] col = raw.Col;
-            var fg = new byte[res * res]; // 0 background, 1 narrow near object, 2 near side of an edge
+            var fg = Pool<byte>.Rent(res * res); // 0 background, 1 narrow near object, 2 near side of an edge
 
             // ---- 1. What is behind narrow near things: closing (max then min) of a coarse depth image ----
             const int q = 4;
@@ -296,10 +304,10 @@ namespace LivePortals
             FillNodes(bgNode, known, fgNode, n, range);
 
             // ---- 6. Textures ----
-            var back = new Color32[res * res];
-            var state = new byte[res * res]; // 0 unknown, 1 colour, 2 sky
+            var back = Pool<Color32>.Rent(res * res);
+            var state = Pool<byte>.Rent(res * res); // 0 unknown, 1 colour, 2 sky
             var unknown = new List<int>();
-            Color32[] front = anyFg ? new Color32[res * res] : null;
+            Color32[] front = anyFg ? Pool<Color32>.Rent(res * res) : null;
             for (int p = 0; p < back.Length; p++)
             {
                 if (fg[p] != 0) { unknown.Add(p); front[p] = col[p]; continue; }
@@ -355,6 +363,7 @@ namespace LivePortals
                 if (front != null) ambientFront = OneLayer(raw.Ambient, fg, sky, true);
             }
 
+            Pool<byte>.Return(fg); Pool<byte>.Return(state); Pool<float>.Return(carried);
             return new FaceLayers
             {
                 Ambient = ambient,
@@ -371,7 +380,7 @@ namespace LivePortals
         /// <summary>The pixels of one layer (foreground or background, never sky) of a light image; black elsewhere.</summary>
         private static Color32[] OneLayer(Color32[] src, byte[] fg, bool[] sky, bool foreground)
         {
-            var outp = new Color32[src.Length];
+            var outp = Pool<Color32>.RentDirty(src.Length);
             var black = new Color32(0, 0, 0, 255);
             for (int p = 0; p < src.Length; p++)
             {
@@ -385,7 +394,7 @@ namespace LivePortals
         /// <summary>The local-light image at half resolution, averaged over the pixels of one layer (foreground or background, never sky); black elsewhere.</summary>
         private static Color32[] HalfRes(Color32[] src, byte[] fg, bool[] sky, int res, int lres, bool foreground)
         {
-            var outp = new Color32[lres * lres];
+            var outp = Pool<Color32>.RentDirty(lres * lres);
             for (int y = 0; y < lres; y++)
                 for (int x = 0; x < lres; x++)
                 {
@@ -497,7 +506,7 @@ namespace LivePortals
         /// </summary>
         private static float[] FillPixels(Color32[] px, byte[] state, List<int> unknown, Color32[] original, float[] D, int res)
         {
-            var carried = (float[])D.Clone();
+            var carried = Pool<float>.RentDirty(D.Length); Array.Copy(D, carried, D.Length);
             var todo = unknown;
             var next = new List<int>();
             var filled = new List<int>();

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.45 (TESTING: not published)
+
+- Less stutter in the seconds after a trip. A capture allocated close to a gigabyte of short-lived arrays (the pixels read back from the GPU, the sky mask, the depth, every layer, every PNG), and each of the collector's passes over them stopped the game. The capture pipeline now reuses its arrays (a pool of up to 160 MB) and encodes its PNGs without managed buffers.
+- With `PerfLog` on, the perf line counts the frames over 33 ms and over 100 ms, the longest frame, the collector's passes and the managed heap, and a "trip" line sums up the eight seconds after each arrival. That is what to send when a trip still stutters.
+
 ## 0.9.44 (TESTING: not published)
 
 - A portal captured within the last five minutes at about the same time of day is not captured again on the next trip through it (`RecaptureAfter`, 300 s; 0 = every trip). Bouncing between two portals, or fanning out from a hub, no longer pays for a capture each time.

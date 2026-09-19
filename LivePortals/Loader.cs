@@ -60,10 +60,17 @@ namespace LivePortals
         /// </summary>
         internal static CaptureLoader FromMemory(CaptureRun run, bool opaqueAlpha, int maxPoints)
         {
+            // The run's arrays go back to the pool once it and every reader are done with them; a run that has
+            // already let go has its files written, so those are loaded instead.
+            if (!run.HoldLayers()) return Start(run.Id, opaqueAlpha, 0, maxPoints);
             var l = new CaptureLoader(Storage.Dir(), Storage.Key(run.Id), opaqueAlpha, 0, maxPoints) { _memory = run };
             Spawn(l.WorkMemory);
             return l;
         }
+
+        /// <summary>Loads in progress (threads waiting for their turn included).</summary>
+        internal static int Active => _active;
+        private static int _active;
 
         // Two loads at a time, on low-priority threads: arriving at a hub started eight at once, each decoding forty
         // PNGs and building their mip chains at normal priority, and the collector held the game at 7 fps meanwhile.
@@ -71,15 +78,22 @@ namespace LivePortals
 
         private static void Spawn(Action work)
         {
+            Interlocked.Increment(ref _active);
             new Thread(() =>
             {
                 _loadGate.Wait();
                 try { work(); }
-                finally { _loadGate.Release(); }
+                finally { _loadGate.Release(); Interlocked.Decrement(ref _active); }
             }) { IsBackground = true, Name = "LivePortals loader", Priority = System.Threading.ThreadPriority.BelowNormal }.Start();
         }
 
         private void WorkMemory()
+        {
+            try { WorkMemoryHeld(); }
+            finally { _memory.DropLayers(); }
+        }
+
+        private void WorkMemoryHeld()
         {
             try
             {

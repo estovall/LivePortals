@@ -721,6 +721,21 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     back to res in `Compose` (bilinear; `SideOf` for the flip), so Layers/Storage are unchanged. Not done: skip
     the no-sun render when a face has no sky (needs sky known before it renders), skipping a capture while fps
     is already low, pass-one reuse across redraws. **Untested.**
+77. 0.9.45 testing: Max on 0.9.44: "still getting lag issues right after teleporting". Log: Ryzen 5800X /
+    RTX 5070; captures render in 7-21 frames (~330 ms), layered 2-3 s, stored 3-4 s; the perf fps is a single
+    smoothDeltaTime sample so the stutter never showed. Hypothesis: the collector (a capture allocates ~1 GB of
+    short-lived arrays across readbacks, Compose, Layers and PNG byte[]s; Unity's collector stops the main
+    thread per pass). Done: `Pool<T>` (exact-length arrays, 160 MB budget, `Pool.cs`) through FaceRaw.Collect /
+    Capture.Read (readbacks), Compose (sky, ambient, flame depth, MetricDepth, Upsample), Layers.Process (fg,
+    state, back, front, carried, HalfRes, OneLayer) with `RawFace.Release` after Process and `FaceRaw.Release`
+    after Compose; the layer outputs go back via `CaptureRun.HoldLayers/DropLayers` (the run holds one, each
+    FromMemory loader one; FromMemory falls back to Start when the run has let go); PNGs through
+    `EncodeNativeArrayToPNG` + `FileStream.Write(ReadOnlySpan)` with a managed fallback (`Storage.WritePng`).
+    PerfLog: frames over 33/100 ms, longest, GC.CollectionCount, heap, pool, loads, captures; "LivePortals trip:"
+    line 8 s after each arrival; loaded line says whether the collector is incremental. **Untested.** If the trip
+    line still shows collections with long frames: the remaining allocations are Grass/Fire records, ReliefMesh
+    data, the loader's mesh building; if it shows long frames without collections, it is main-thread work
+    (window builds, uploads, the capture's own frames).
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

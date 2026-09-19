@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "Immersive Portals";
-        public const string VERSION = "0.9.44";
+        public const string VERSION = "0.9.45";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -301,7 +301,7 @@ namespace LivePortals
             var create = AccessTools.Method(typeof(ZNetScene), "CreateObject", new[] { typeof(ZDO) });
             if (create != null) _harmony.Patch(create, postfix: new HarmonyMethod(typeof(Patches), nameof(Patches.ZNetScene_CreateObject)));
             else Log.LogWarning("LivePortals: ZNetScene.CreateObject not found; windows will be lit by nearby torches.");
-            Log.LogInfo($"LivePortals {VERSION} loaded. Quality {Quality.Value}: captures at {CaptureRes} px, windows at up to {WindowRes} px (screen {Screen.width}x{Screen.height}, auto-resolution {(AutoResolution.Value ? "on" : "off")}).");
+            Log.LogInfo($"LivePortals {VERSION} loaded. Quality {Quality.Value}: captures at {CaptureRes} px, windows at up to {WindowRes} px (screen {Screen.width}x{Screen.height}, auto-resolution {(AutoResolution.Value ? "on" : "off")}); collector {(UnityEngine.Scripting.GarbageCollector.isIncremental ? "incremental" : "not incremental")}.");
         }
 
         private void OnDestroy()
@@ -361,6 +361,7 @@ namespace LivePortals
         private void Update()
         {
             if (!Enabled.Value) return;
+            if (PerfLog.Value) CountFrame();
             HoldTeleportForCapture();
             var player = Player.m_localPlayer;
             if (player == null || GameCamera.instance == null) return;
@@ -400,6 +401,30 @@ namespace LivePortals
         private static readonly List<PortalWindow> _wanting = new List<PortalWindow>();
 
         private float _perfAt;
+        // Frame counts since start (PerfLog): the perf line and the trip report print the differences.
+        private int _frames, _over33, _over100;
+        private int _pFrames, _pOver33, _pOver100, _pGc; private float _pLongest;
+        private float _tripAt = -1f; private int _tFrames, _tOver33, _tOver100, _tGc; private float _tLongest;
+
+        private void CountFrame()
+        {
+            float ms = Time.unscaledDeltaTime * 1000f;
+            _frames++;
+            if (ms > 33f) _over33++;
+            if (ms > 100f) _over100++;
+            if (ms > _pLongest) _pLongest = ms;
+            if (ms > _tLongest) _tLongest = ms;
+            if (_tripAt >= 0f && Time.time - _tripAt > 8f)
+            {
+                Log.LogInfo($"LivePortals trip: the 8 s after arriving: {_frames - _tFrames} frames ({(_frames - _tFrames) / 8f:0} fps), {_over33 - _tOver33} over 33 ms, {_over100 - _tOver100} over 100 ms, longest {_tLongest:0} ms, {GC.CollectionCount(0) - _tGc} collections; now {PortalWindow.All.Count} windows, {CaptureLoader.Active} loads and {_running.Count} captures in flight, pool {PoolBudget.Held >> 20} MB");
+                _tripAt = -1f;
+            }
+        }
+
+        private void StartTrip()
+        {
+            _tripAt = Time.time; _tFrames = _frames; _tOver33 = _over33; _tOver100 = _over100; _tGc = GC.CollectionCount(0); _tLongest = 0f;
+        }
 
         /// <summary>
         /// Runs just before the game camera culls: every script has moved what it moves by then (the game places its
@@ -413,8 +438,9 @@ namespace LivePortals
             if (PerfLog.Value && Time.time - _perfAt > 10f)
             {
                 float span = _perfAt > 0f ? Time.time - _perfAt : 10f;
-                Log.LogInfo($"LivePortals perf: {PortalWindow.All.Count} windows exist, {PortalWindow.PerfRenders / span:0.0} window renders/s costing {PortalWindow.PerfMs / span:0.0} ms per second of main-thread time, game {1f / Mathf.Max(0.0001f, Time.smoothDeltaTime):0} fps, all textures in the game {Texture.currentTextureMemory / 1048576UL} MB of {SystemInfo.graphicsMemorySize} MB video memory, of which the windows' captures about {PortalWindow.CaptureMegabytes():0} MB");
+                Log.LogInfo($"LivePortals perf: {PortalWindow.All.Count} windows exist, {PortalWindow.PerfRenders / span:0.0} window renders/s costing {PortalWindow.PerfMs / span:0.0} ms per second of main-thread time, game {1f / Mathf.Max(0.0001f, Time.smoothDeltaTime):0} fps, all textures in the game {Texture.currentTextureMemory / 1048576UL} MB of {SystemInfo.graphicsMemorySize} MB video memory, of which the windows' captures about {PortalWindow.CaptureMegabytes():0} MB; {_frames - _pFrames} frames, {_over33 - _pOver33} over 33 ms, {_over100 - _pOver100} over 100 ms, longest {_pLongest:0} ms, {GC.CollectionCount(0) - _pGc} collections, managed heap {GC.GetTotalMemory(false) >> 20} MB, pool {PoolBudget.Held >> 20} MB, {CaptureLoader.Active} loads and {_running.Count} captures in flight");
                 PortalWindow.PerfRenders = 0; PortalWindow.PerfMs = 0; _perfAt = Time.time;
+                _pFrames = _frames; _pOver33 = _over33; _pOver100 = _over100; _pGc = GC.CollectionCount(0); _pLongest = 0f;
             }
             _wanting.Clear();
             for (int i = 0; i < PortalWindow.All.Count; i++)
@@ -568,6 +594,7 @@ namespace LivePortals
         {
             if (player != Player.m_localPlayer) return;
             bool now = player.m_teleporting;
+            if (_wasTeleporting && !now && Enabled.Value && PerfLog.Value) StartTrip();
             if (_wasTeleporting && !now && Enabled.Value && CaptureOnArrival.Value) StartCoroutine(ArrivalCapture(player));
             _wasTeleporting = now;
         }
