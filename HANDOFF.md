@@ -680,6 +680,13 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     window passes; directional lights stay for the grass. If a sheen remains, it is the directional light's
     specular: next step would be a metallic-1/black-albedo G-buffer (map (255,0,0,0)) so the specular colour is
     black. **Untested.** Caveat: live grass in the window is no longer lit by torches near the viewer's ring.
+71. 0.9.39 testing: Max, "really crazy FPS drops at the portal hub" on 0.9.37. Perf lines: "8 windows exist ...
+    captures 0 MB, game 7 fps" (the eight loaders starting together, ThreadPool normal priority), and 22-41 fps
+    stretches with window redraws at only 50-115 ms/s; fully loaded the hub holds 704 MB of capture textures.
+    `CaptureLoader.Spawn`: BelowNormal threads through a SemaphoreSlim(2). `PortalWindow._fireSystems`: the live
+    flame ParticleSystems are paused unless the window was drawn within the last second (Fire.Build sets
+    AlwaysSimulate, so nothing else stops them). If the hub still drops: texture memory (704 MB: half-res for far
+    windows, fewer viewpoints) and the number of loaded windows are the next levers. **Untested.**
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

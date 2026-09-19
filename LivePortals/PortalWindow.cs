@@ -75,6 +75,8 @@ namespace LivePortals
         private Light _light;
         private GameObject _fireHolder;                                       // stands for the far ring's frame; see FireSet
         private readonly List<ParticleSystemRenderer> _fire = new List<ParticleSystemRenderer>();
+        private readonly List<ParticleSystem> _fireSystems = new List<ParticleSystem>();
+        private bool _fireSimulating;
         private Color _tint = Color.white, _sunTint = Color.white, _skyGain = Color.black;
         private bool _split;
         private RenderTexture _bloomRt;
@@ -149,6 +151,18 @@ namespace LivePortals
         private void Update()
         {
             if (!Plugin.Enabled.Value || _suppressed || _tw == null || _nview == null || !_nview.IsValid()) { Hide(); return; }
+            // The far side's flames simulate only while this window is being drawn: at a hub, eight windows' worth
+            // of emitters (about five hundred) simulating every frame, most of them behind the player, cost more
+            // than the windows themselves.
+            if (_fireSystems.Count > 0)
+            {
+                bool want = _visible && !_hiddenForCapture && Time.time - _lastRenderTime < 1f;
+                if (want != _fireSimulating)
+                {
+                    _fireSimulating = want;
+                    foreach (var ps in _fireSystems) if (ps != null) { if (want) ps.Play(false); else ps.Pause(false); }
+                }
+            }
             var player = Player.m_localPlayer;
             var gc = GameCamera.instance;
             if (player == null || gc == null || gc.m_camera == null) { Hide(); return; }
@@ -1014,6 +1028,9 @@ namespace LivePortals
             {
                 _fireHolder = new GameObject("LivePortals_Fire");
                 int built = _set.Fire.Build(_fireHolder.transform, _fire);
+                _fireSystems.Clear();
+                foreach (var ps in _fireHolder.GetComponentsInChildren<ParticleSystem>(true)) _fireSystems.Add(ps);
+                _fireSimulating = true;
                 _fireHolder.SetActive(_visible && !_hiddenForCapture);
                 Plugin.Log.LogInfo($"LivePortals: {built} of {_set.Fire.Items.Count} flame effects play in the window at {name} ({_fire.Count} particle renderers)");
             }
@@ -1076,6 +1093,7 @@ namespace LivePortals
             }
             _reliefs.Clear();
             _fire.Clear();
+            _fireSystems.Clear();
             if (_fireHolder != null) { Destroy(_fireHolder); _fireHolder = null; }
         }
 

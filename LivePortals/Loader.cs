@@ -47,7 +47,7 @@ namespace LivePortals
         {
             var l = new CaptureLoader(Storage.Dir(), Storage.Key(id), opaqueAlpha, fromPoint, maxPoints);
             if (!File.Exists(Storage.MetaPath(l._dir, l._key))) { l._threadDone = true; l.Finish(null); return l; }
-            ThreadPool.QueueUserWorkItem(_ => l.Work());
+            Spawn(l.Work);
             return l;
         }
 
@@ -61,8 +61,22 @@ namespace LivePortals
         internal static CaptureLoader FromMemory(CaptureRun run, bool opaqueAlpha, int maxPoints)
         {
             var l = new CaptureLoader(Storage.Dir(), Storage.Key(run.Id), opaqueAlpha, 0, maxPoints) { _memory = run };
-            ThreadPool.QueueUserWorkItem(_ => l.WorkMemory());
+            Spawn(l.WorkMemory);
             return l;
+        }
+
+        // Two loads at a time, on low-priority threads: arriving at a hub started eight at once, each decoding forty
+        // PNGs and building their mip chains at normal priority, and the collector held the game at 7 fps meanwhile.
+        private static readonly SemaphoreSlim _loadGate = new SemaphoreSlim(2);
+
+        private static void Spawn(Action work)
+        {
+            new Thread(() =>
+            {
+                _loadGate.Wait();
+                try { work(); }
+                finally { _loadGate.Release(); }
+            }) { IsBackground = true, Name = "LivePortals loader", Priority = System.Threading.ThreadPriority.BelowNormal }.Start();
         }
 
         private void WorkMemory()

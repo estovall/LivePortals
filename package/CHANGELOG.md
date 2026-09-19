@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.39 (TESTING: on the `testing` branch only, not published)
+
+- Arriving at a hub no longer drops the game to single digits. Eight windows loaded at once, each decoding forty PNGs on a normal-priority thread; loads now run two at a time on low-priority threads.
+- The far side's live flames simulate only while their window is being drawn. At a hub, some five hundred emitters were simulating every frame, most behind the player.
+
 ## 0.9.38 (TESTING: on the `testing` branch only, not published)
 
 - The glossy film on the window is gone. The reliefs are black surfaces showing the picture as emission, and the game's pipeline still gave them a black non-metal's reflectance, rising steeply at grazing angles: seen obliquely they mirrored the sky as a milky blue film and nearby torches as a gold-pink sheen on the dark parts, shifting with the eye. Environment reflections and every point and spot light are now switched off while a window renders; the sun and moon stay on for the grass. (The same capture redrawn offline without lighting was clean, which is what pointed at the lighting.)
