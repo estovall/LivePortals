@@ -705,6 +705,14 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     crank it down by a ton". `Plugin.CaptureRes` / `WindowRes` = min(setting, round(Screen.height*0.75/64)*64,
     >= 256) when `AutoResolution` (on); used by `Capture.MakeRig` and the window's RT sizing. The loaded line logs
     the values. **Untested.**
+75. 0.9.43 testing: Max on 0.9.41: "still considerable frame drop" and "the camera does not stay behind you".
+    Perf lines: hub steady 55-78 fps with windows at ~110 ms/s; the drops are the capture (21 frames x 45 ms)
+    and the 10 s after arriving (8 windows loading, 12 fps, almost no redraws). Done: `FireSet.BuildItem`
+    (one effect) with `PortalWindow.BuildFire` copying two per frame; `BufferPool` (exact-size byte[] reuse) in
+    Png.Decode, Mips.Chain, QueueTexture/QueueArray, returned after Upload; the window hides while the player is
+    inside its ring (|along| < 1.1 m, lateral < 1.6 m) or IsTeleporting within 3 m, so the camera never faces the
+    back of the picture (the CollideRay2 collider trick of 0.9.41 evidently did not move the camera). Not done:
+    the capture's 45 ms frames (local/sky-light passes at half res would cut ~30%). **Untested.**
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

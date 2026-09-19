@@ -149,7 +149,7 @@ namespace LivePortals
         /// <summary>Queue the upload of an image held as pixels (the in-memory path; see QueueTexture for the file path).</summary>
         private void QueueArray(Color32[] px, int w, int h, Action<Texture2D> into, bool half = false)
         {
-            var pixels = new byte[px.Length * 4];
+            var pixels = BufferPool.Rent(px.Length * 4);
             for (int i = 0, o = 0; i < px.Length; i++, o += 4)
             {
                 Color32 c = px[i];
@@ -157,11 +157,13 @@ namespace LivePortals
                 pixels[o + 3] = _opaque ? (c.a >= 100 ? (byte)255 : (byte)0) : c.a;
             }
             byte[] chain = Mips.Chain(pixels, w, h, out int levels);
+            BufferPool.Return(pixels);
             if (half && w >= 128 && h >= 128 && levels > 1)
             {
                 int top = w * h * 4;
-                var rest = new byte[chain.Length - top];
+                var rest = BufferPool.Rent(chain.Length - top);
                 Array.Copy(chain, top, rest, 0, rest.Length);
+                BufferPool.Return(chain);
                 chain = rest; w >>= 1; h >>= 1; levels--;
             }
             _items.Add(() => into(Upload(chain, w, h, levels)));
@@ -261,12 +263,14 @@ namespace LivePortals
             {
                 if (_opaque) for (int i = 3; i < pixels.Length; i += 4) pixels[i] = pixels[i] >= 100 ? (byte)255 : (byte)0;
                 byte[] chain = Mips.Chain(pixels, w, h, out int levels);
+                BufferPool.Return(pixels);
                 if (half && w >= 128 && h >= 128 && levels > 1)
                 {
                     // Without the top level: a quarter of the memory and of the upload.
                     int top = w * h * 4;
-                    var rest = new byte[chain.Length - top];
+                    var rest = BufferPool.Rent(chain.Length - top);
                     Array.Copy(chain, top, rest, 0, rest.Length);
+                    BufferPool.Return(chain);
                     chain = rest; w >>= 1; h >>= 1; levels--;
                 }
                 _items.Add(() => into(Upload(chain, w, h, levels)));
@@ -301,6 +305,7 @@ namespace LivePortals
                 if (tex.mipmapCount != levels) throw new InvalidOperationException("engine expects " + tex.mipmapCount + " mip levels, built " + levels);
                 tex.LoadRawTextureData(chain);
                 tex.Apply(false, true);
+                BufferPool.Return(chain);
             }
             catch (Exception e)
             {
@@ -349,6 +354,34 @@ namespace LivePortals
         }
     }
 
+    /// <summary>
+    /// Byte arrays of the sizes the loader uses, kept and handed out again (exact sizes, so LoadRawTextureData sees
+    /// the right length). Loading a hub's eight windows allocated well over a gigabyte of short-lived arrays, and
+    /// the collector's pauses over that were most of the 12 fps of those seconds. Any thread.
+    /// </summary>
+    internal static class BufferPool
+    {
+        private static readonly Dictionary<int, Stack<byte[]>> _free = new Dictionary<int, Stack<byte[]>>();
+        private const int KeepPerSize = 12;
+
+        internal static byte[] Rent(int size)
+        {
+            lock (_free)
+                if (_free.TryGetValue(size, out var st) && st.Count > 0) return st.Pop();
+            return new byte[size];
+        }
+
+        internal static void Return(byte[] b)
+        {
+            if (b == null) return;
+            lock (_free)
+            {
+                if (!_free.TryGetValue(b.Length, out var st)) _free[b.Length] = st = new Stack<byte[]>();
+                if (st.Count < KeepPerSize) st.Push(b);
+            }
+        }
+    }
+
     /// <summary>Box-filtered mip chain of an RGBA32 image, laid out the way Texture2D.LoadRawTextureData expects (level 0 first).</summary>
     internal static class Mips
     {
@@ -361,7 +394,7 @@ namespace LivePortals
                 lw = Mathf.Max(1, lw >> 1); lh = Mathf.Max(1, lh >> 1);
                 total += (long)lw * lh * 4;
             }
-            var chain = new byte[total];
+            var chain = BufferPool.Rent((int)total);
             Array.Copy(top, chain, top.Length);
             int srcOff = 0, sw = w, sh = h, dstOff = top.Length;
             while (sw > 1 || sh > 1)
@@ -421,7 +454,7 @@ namespace LivePortals
                 int ch;
                 switch (colorType) { case 0: ch = 1; break; case 2: ch = 3; break; case 4: ch = 2; break; case 6: ch = 4; break; default: return null; }
                 int stride = w * ch;
-                var raw = new byte[h * (stride + 1)];
+                var raw = BufferPool.Rent(h * (stride + 1));
                 idat.Position = 2; // zlib header; the deflate stream follows
                 using (var ds = new DeflateStream(idat, CompressionMode.Decompress))
                 {
@@ -461,7 +494,7 @@ namespace LivePortals
                         default: return null;
                     }
                 }
-                var outp = new byte[w * h * 4];
+                var outp = BufferPool.Rent(w * h * 4);
                 for (int y = 0; y < h; y++)
                 {
                     int src = y * (stride + 1) + 1, dst = (h - 1 - y) * w * 4;
@@ -473,6 +506,7 @@ namespace LivePortals
                         default: for (int x = 0; x < w; x++) { byte v = raw[src + x]; outp[dst + x * 4] = v; outp[dst + x * 4 + 1] = v; outp[dst + x * 4 + 2] = v; outp[dst + x * 4 + 3] = 255; } break;
                     }
                 }
+                BufferPool.Return(raw);
                 return outp;
             }
             catch (Exception) { return null; }

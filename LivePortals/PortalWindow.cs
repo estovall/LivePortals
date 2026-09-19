@@ -77,6 +77,22 @@ namespace LivePortals
         private readonly List<ParticleSystemRenderer> _fire = new List<ParticleSystemRenderer>();
         private readonly List<ParticleSystem> _fireSystems = new List<ParticleSystem>();
         private bool _fireSimulating;
+        private int _fireBuildNext, _fireBuilt;
+
+        /// <summary>Two of the far side's flame effects per frame until all are there.</summary>
+        private void BuildFire()
+        {
+            if (_fireHolder == null || _set == null || _set.Fire == null || _fireBuildNext >= _set.Fire.Items.Count) return;
+            for (int n = 0; n < 2 && _fireBuildNext < _set.Fire.Items.Count; n++, _fireBuildNext++)
+                if (_set.Fire.BuildItem(_fireBuildNext, _fireHolder.transform, _fire)) _fireBuilt++;
+            if (_fireBuildNext >= _set.Fire.Items.Count)
+            {
+                _fireSystems.Clear();
+                foreach (var ps in _fireHolder.GetComponentsInChildren<ParticleSystem>(true)) _fireSystems.Add(ps);
+                _fireSimulating = true;
+                Plugin.Dbg($"{_fireBuilt} of {_set.Fire.Items.Count} flame effects play in the window at {name} ({_fire.Count} particle renderers)");
+            }
+        }
         private Color _tint = Color.white, _sunTint = Color.white, _skyGain = Color.black;
         private bool _split;
         private RenderTexture _bloomRt;
@@ -151,6 +167,7 @@ namespace LivePortals
         private void Update()
         {
             if (!Plugin.Enabled.Value || _suppressed || _tw == null || _nview == null || !_nview.IsValid()) { Hide(); return; }
+            BuildFire();
             // The far side's flames simulate only while this window is being drawn: at a hub, eight windows' worth
             // of emitters (about five hundred) simulating every frame, most of them behind the player, cost more
             // than the windows themselves.
@@ -172,6 +189,16 @@ namespace LivePortals
             float range = act * Plugin.RangeMultiplier.Value;
             float full = act * Plugin.FullMultiplier.Value;
             if (dist > range + 3f + PreloadMargin) { Destroy(this); return; } // walked away; the scan re-adds us when we come back
+            // Standing in the ring, or being sent through it, the window is off: the camera sits on the far side of
+            // the pane then and would look at the back of the picture instead of at the player. As in vanilla, the
+            // swirl plays around the player.
+            if (dist < 3f)
+            {
+                Vector3 c0 = PortalShape.Of(_tw).Centre, n0 = transform.forward;
+                Vector3 d0 = player.transform.position + Vector3.up - c0;
+                float along = Vector3.Dot(d0, n0);
+                if ((Mathf.Abs(along) < 1.1f && (d0 - n0 * along).magnitude < 1.6f) || player.IsTeleporting()) { Hide(); return; }
+            }
             float alpha = range <= full ? (dist <= range ? 1f : 0f) : Mathf.Clamp01((range - dist) / (range - full));
             alpha = 1f - (1f - alpha) * (1f - alpha); // ease in: half visible a third of the way in
 
@@ -1034,12 +1061,12 @@ namespace LivePortals
             if (_set.Fire != null && Plugin.LiveFire.Value)
             {
                 _fireHolder = new GameObject("LivePortals_Fire");
-                int built = _set.Fire.Build(_fireHolder.transform, _fire);
-                _fireSystems.Clear();
-                foreach (var ps in _fireHolder.GetComponentsInChildren<ParticleSystem>(true)) _fireSystems.Add(ps);
-                _fireSimulating = true;
                 _fireHolder.SetActive(_visible && !_hiddenForCapture);
-                Plugin.Log.LogInfo($"LivePortals: {built} of {_set.Fire.Items.Count} flame effects play in the window at {name} ({_fire.Count} particle renderers)");
+                // The effects are copied a couple per frame in Update (see BuildFire): thirty-two Instantiates at
+                // once, times eight windows arriving at a hub, were a good part of the 12 fps there.
+                _fireBuildNext = 0; _fireBuilt = 0;
+                _fireSystems.Clear();
+                _fireSimulating = true;
             }
         }
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.43 (TESTING: not published)
+
+- Arriving at a hub costs far less. Each window used to copy all of the far side's flame effects at once (32 Instantiates), and the loaders fed the collector over a gigabyte of short-lived arrays; the effects are now copied two per frame, and the loaders reuse their buffers.
+- Standing in a portal's ring, or being sent through it, that window is off, so the camera behind you sees you and the swirl instead of the back of the picture.
+
 ## 0.9.42 (TESTING: not published)
 
 - Captures and windows are sized to the screen (`AutoResolution`, on): about three quarters of the screen height per cube face, never above the preset's resolution. A 480p screen captures at 384 px instead of 512 or 768, with the memory and work that go with it; 720p at 512; 1080p at whatever the preset allows. The log's first line now states the resolutions in use.

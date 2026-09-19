@@ -215,10 +215,9 @@ namespace LivePortals
         /// on the capture layer, renderers off; the window switches them on only while its own camera renders.
         /// Nothing but particle systems survives in a copy: no lights, sounds or scripts.
         /// </summary>
-        internal int Build(Transform holder, List<ParticleSystemRenderer> renderers)
+        private bool EnsureStash()
         {
-            var scene = ZNetScene.instance;
-            if (scene == null) return 0;
+            if (ZNetScene.instance == null) return false;
             if (_stash == null)
             {
                 // Copies are made under a switched-off parent, so none of their scripts ever wakes up before it is removed.
@@ -226,20 +225,34 @@ namespace LivePortals
                 _stash.SetActive(false);
                 Object.DontDestroyOnLoad(_stash);
             }
+            return true;
+        }
+
+        /// <summary>All the effects at once (the offline path). The window builds them a few per frame with BuildItem.</summary>
+        internal int Build(Transform holder, List<ParticleSystemRenderer> renderers)
+        {
             int built = 0;
-            foreach (var it in Items)
-            {
+            for (int i = 0; i < Items.Count; i++) if (BuildItem(i, holder, renderers)) built++;
+            return built;
+        }
+
+        /// <summary>Copy the game's effect for Items[index] under holder. Main thread; each is an Instantiate plus the stripping of its scripts, so a window spreads them over frames.</summary>
+        internal bool BuildItem(int index, Transform holder, List<ParticleSystemRenderer> renderers)
+        {
+            if (index < 0 || index >= Items.Count || !EnsureStash()) return false;
+            var scene = ZNetScene.instance;
+            var it = Items[index];
                 try
                 {
                     var prefab = scene.GetPrefab(it.Prefab);
-                    if (prefab == null) continue;
+                    if (prefab == null) return false;
                     Transform src = prefab.transform;
                     foreach (int i in it.Path)
                     {
                         if (i < 0 || i >= src.childCount) { src = null; break; }
                         src = src.GetChild(i);
                     }
-                    if (src == null || src.name != it.Name || src.GetComponent<ParticleSystem>() == null) continue;
+                    if (src == null || src.name != it.Name || src.GetComponent<ParticleSystem>() == null) return false;
                     var go = Object.Instantiate(src.gameObject, _stash.transform);
                     go.name = "LivePortals_Fire_" + it.Name;
                     // Scripts first (they are what requires the other components), then everything that is not the effect.
@@ -280,14 +293,13 @@ namespace LivePortals
                     go.transform.localRotation = it.Rot;
                     // A system that scales by its own transform alone had the prefab's scale in the world, whatever its parents'.
                     go.transform.localScale = localScale ? src.localScale : it.Scale;
-                    built++;
+                    return true;
                 }
                 catch (System.Exception e)
                 {
                     Plugin.Log.LogWarning("LivePortals: could not copy the effect " + it.Name + " of " + it.Prefab + ": " + e.Message);
                 }
-            }
-            return built;
+            return false;
         }
     }
 }
