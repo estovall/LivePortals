@@ -701,6 +701,10 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     matters and unaffected. Also: "constant fps issues when at all near them" (other players): no logs yet;
     Medium preset halves the per-frame work; if their PerfLog shows window cost over ~20% of the frame, the next
     cut is rendering pass one (sky + skirts) only every other redraw. **Untested.**
+74. 0.9.42 testing: Max: "automatically set the capture resolution depending on their graphics settings, at 480p
+    crank it down by a ton". `Plugin.CaptureRes` / `WindowRes` = min(setting, round(Screen.height*0.75/64)*64,
+    >= 256) when `AutoResolution` (on); used by `Capture.MakeRig` and the window's RT sizing. The loaded line logs
+    the values. **Untested.**
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

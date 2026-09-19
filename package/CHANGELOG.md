@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.42 (TESTING: not published)
+
+- Captures and windows are sized to the screen (`AutoResolution`, on): about three quarters of the screen height per cube face, never above the preset's resolution. A 480p screen captures at 384 px instead of 512 or 768, with the memory and work that go with it; 720p at 512; 1080p at whatever the preset allows. The log's first line now states the resolutions in use.
+
 ## 0.9.41 (TESTING: not published)
 
 - The camera passes through a portal you stand in. The game keeps its camera out of the portal frame, so stepping into the ring pushed it between the frame and the pane, looking at the back of the window. For the camera's own checks the portal's colliders are ignored while you are within reach (`CameraThroughPortal`, on); walking into the frame is unchanged.

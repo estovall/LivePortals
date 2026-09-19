@@ -227,8 +227,9 @@ namespace LivePortals
             var gc = GameCamera.instance;
             if (gc == null || gc.m_camera == null) { Plugin.Log.LogWarning("LivePortals: no game camera, cannot capture."); return null; }
             var main = gc.m_camera;
-            int step = Mathf.Max(2, Mathf.CeilToInt(Plugin.CaptureResolution.Value / (float)Plugin.MeshGrid.Value));
-            int res = Mathf.Max(step * 8, Plugin.CaptureResolution.Value / step * step);
+            int wanted = Plugin.CaptureRes;
+            int step = Mathf.Max(2, Mathf.CeilToInt(wanted / (float)Plugin.MeshGrid.Value));
+            int res = Mathf.Max(step * 8, wanted / step * step);
             float depthRange = Plugin.DepthRange.Value;
 
             var go = new GameObject("LivePortals_CaptureCamera");

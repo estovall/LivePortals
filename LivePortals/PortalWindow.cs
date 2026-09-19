@@ -710,7 +710,7 @@ namespace LivePortals
         private void UpdateResolutionTier(Camera main)
         {
             if (_rt == null) return;
-            int max = Mathf.Max(128, Plugin.WindowResolution.Value);
+            int max = Mathf.Max(128, Plugin.WindowRes);
             float fov = main != null ? main.fieldOfView : 65f;
             float px = Screen.height * _paneW / Mathf.Max(0.5f, 2f * _eyeDist * Mathf.Tan(fov * 0.5f * Mathf.Deg2Rad));
             int want = max;
@@ -826,7 +826,7 @@ namespace LivePortals
             _built = true;
             if (_quad == null) _quad = MakeQuad();
             if (_disc == null) _disc = MakeDisc(64);
-            int res = Plugin.WindowResolution.Value;
+            int res = Plugin.WindowRes;
             // 8-bit sRGB. 0.8.7 to 0.8.9 used a half-float texture to keep the sky's over-bright blue from clipping
             // (the sky through a window looks pinker than the real one); in game the whole window then came out dark
             // and deep orange, as if its linear values were shown unconverted. Why is not understood; this format is

@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "Immersive Portals";
-        public const string VERSION = "0.9.41";
+        public const string VERSION = "0.9.42";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -31,6 +31,7 @@ namespace LivePortals
         // ---- Config ----
         internal static ConfigEntry<bool> Enabled;
         internal static ConfigEntry<QualityOption> Quality;
+        internal static ConfigEntry<bool> AutoResolution;
         internal static ConfigEntry<int> CaptureResolution;
         internal static ConfigEntry<int> CapturePoints;
         internal static ConfigEntry<int> WindowResolution;
@@ -120,6 +121,8 @@ namespace LivePortals
             Log = Logger;
 
             Enabled = Config.Bind("1. General", "Enabled", true, "Master switch.");
+            AutoResolution = Config.Bind("1. General", "AutoResolution", true,
+                "Size captures and windows to the screen: about three quarters of the screen height per cube face, never above CaptureResolution and WindowResolution. A 480p screen then captures at 384 px, 720p at 512, 1080p at 768 or whatever the preset allows.");
             Quality = Config.Bind("1. General", "Quality", QualityOption.Medium,
                 "Sets the capture and window resolution, the viewpoints per capture, how many windows are kept and redrawn, and the background threads, together. Medium suits a mid-range PC; High is for a strong one (8 GB card, 8+ cores); Low for a weak one. Custom leaves the individual settings below alone.");
             CaptureResolution = Config.Bind("1. General", "CaptureResolution", 768,
@@ -294,7 +297,7 @@ namespace LivePortals
             var create = AccessTools.Method(typeof(ZNetScene), "CreateObject", new[] { typeof(ZDO) });
             if (create != null) _harmony.Patch(create, postfix: new HarmonyMethod(typeof(Patches), nameof(Patches.ZNetScene_CreateObject)));
             else Log.LogWarning("LivePortals: ZNetScene.CreateObject not found; windows will be lit by nearby torches.");
-            Log.LogInfo($"LivePortals {VERSION} loaded.");
+            Log.LogInfo($"LivePortals {VERSION} loaded. Quality {Quality.Value}: captures at {CaptureRes} px, windows at up to {WindowRes} px (screen {Screen.width}x{Screen.height}, auto-resolution {(AutoResolution.Value ? "on" : "off")}).");
         }
 
         private void OnDestroy()
@@ -307,6 +310,18 @@ namespace LivePortals
         {
             player.Message(MessageHud.MessageType.Center, "LivePortals: " + what);
             Log.LogInfo("LivePortals diag: " + what);
+        }
+
+        /// <summary>Pixels per captured cube face: the setting, or less when the screen could not show more (AutoResolution).</summary>
+        internal static int CaptureRes => AutoResolution.Value ? Mathf.Min(CaptureResolution.Value, ForScreen()) : CaptureResolution.Value;
+        /// <summary>Most pixels a window is drawn at, the same way.</summary>
+        internal static int WindowRes => AutoResolution.Value ? Mathf.Min(WindowResolution.Value, ForScreen()) : WindowResolution.Value;
+
+        /// <summary>Three quarters of the screen height, to a multiple of 64, at least 256: a portal fills about that much of the screen at its nearest.</summary>
+        private static int ForScreen()
+        {
+            int h = Screen.height > 0 ? Screen.height : 1080;
+            return Mathf.Max(256, Mathf.RoundToInt(h * 0.75f / 64f) * 64);
         }
 
         /// <summary>The preset's values into the individual settings (saved, so the file shows what runs). Custom: as they are.</summary>
