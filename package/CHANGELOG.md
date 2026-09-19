@@ -1,38 +1,40 @@
 # Changelog
 
-## 0.9.47 (TESTING: not published)
+## 0.9.47
+
+Released with everything from 0.9.40 up, tested on Max's server over 2026-09-19.
 
 - After a trip, the window at the arrival portal loaded its new capture three times: from memory a moment after arriving, then again from the old files on disk while the new files were still being written (the old view flashing by), then from the new files. An older stored capture no longer replaces what a window already shows. One load per trip, one set of meshes and flames.
 
-## 0.9.46 (TESTING: not published)
+## 0.9.46
 
 - Stepping into a portal no longer switches its window off. The pane backs away from you instead, staying about 0.7 m beyond you and growing to keep filling the frame, so you walk into the picture while the game fades to black, with the swirl around you. The camera behind you still never looks at the back of the picture.
 - The departure capture now starts one second after stepping in, when the game's fade is fully black, instead of at 0.2 s. The capture hides you, the portal and the windows for the frames it renders, and at 0.2 s that blink was in plain view. The teleport is still held until the capture has rendered.
 
-## 0.9.45 (TESTING: not published)
+## 0.9.45
 
 - Less stutter in the seconds after a trip. A capture allocated close to a gigabyte of short-lived arrays (the pixels read back from the GPU, the sky mask, the depth, every layer, every PNG), and each of the collector's passes over them stopped the game. The capture pipeline now reuses its arrays (a pool of up to 160 MB) and encodes its PNGs without managed buffers.
 - With `PerfLog` on, the perf line counts the frames over 33 ms and over 100 ms, the longest frame, the collector's passes and the managed heap, and a "trip" line sums up the eight seconds after each arrival. That is what to send when a trip still stutters.
 
-## 0.9.44 (TESTING: not published)
+## 0.9.44
 
 - A portal captured within the last five minutes at about the same time of day is not captured again on the next trip through it (`RecaptureAfter`, 300 s; 0 = every trip). Bouncing between two portals, or fanning out from a hub, no longer pays for a capture each time.
 - A capture's two light renders ("torches only", "no sun") are done at half size and brought up to the picture's size afterwards: light is smooth, and they were a third of each face's GPU time. The capture's frames are shorter by about that much.
 
-## 0.9.43 (TESTING: not published)
+## 0.9.43
 
 - Arriving at a hub costs far less. Each window used to copy all of the far side's flame effects at once (32 Instantiates), and the loaders fed the collector over a gigabyte of short-lived arrays; the effects are now copied two per frame, and the loaders reuse their buffers.
 - Standing in a portal's ring, or being sent through it, that window is off, so the camera behind you sees you and the swirl instead of the back of the picture.
 
-## 0.9.42 (TESTING: not published)
+## 0.9.42
 
 - Captures and windows are sized to the screen (`AutoResolution`, on): about three quarters of the screen height per cube face, never above the preset's resolution. A 480p screen captures at 384 px instead of 512 or 768, with the memory and work that go with it; 720p at 512; 1080p at whatever the preset allows. The log's first line now states the resolutions in use.
 
-## 0.9.41 (TESTING: not published)
+## 0.9.41
 
-- The camera passes through a portal you stand in. The game keeps its camera out of the portal frame, so stepping into the ring pushed it between the frame and the pane, looking at the back of the window. For the camera's own checks the portal's colliders are ignored while you are within reach (`CameraThroughPortal`, on); walking into the frame is unchanged.
+- The camera passes through a portal you stand in. The game keeps its camera out of the portal frame, so stepping into the ring pushed it between the frame and the pane, looking at the back of the window. For the camera's own checks the portal's colliders are ignored while you are within reach (`CameraThroughPortal`, on); walking into the frame is unchanged. (It did not keep the camera out in practice; 0.9.46 solves it by moving the pane back instead. The setting remains and is harmless.)
 
-## 0.9.40 (TESTING: not published)
+## 0.9.40
 
 - A `Quality` setting with Low, Medium and High presets sets the capture and window resolution, the viewpoints, the number of windows kept and redrawn, and the background threads together. Medium is the default for new installs (512 px, two viewpoints, six windows, one redraw per frame at 30 Hz, two threads); existing configs are set to High, which is exactly what they ran before. Custom leaves the individual settings alone.
 - No more periodic hitch in big bases: the mod tracked lights by scanning every object every two seconds (since 0.9.38); it now notes them as the game creates its objects. A torch placed during the session lights windows until the next login.
