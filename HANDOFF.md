@@ -1,10 +1,9 @@
 # Pick-up notes for LivePortals
 
-Last updated 2026-09-18 (evening) on Max's second PC, right before he moved to the home PC. **Two lines of code:**
-`main` = **0.9.22**, the version published on Hexium (`Max/Immersive_Portals`). Branch **`testing`** = **0.9.23**, work
-in progress, NOT published: Max: "as of current it is not better than the last hexium version specifically as i fear
-some optimization tweaks may have added more issues on stuff we havent tested yet". Work continues on `testing`;
-merge to `main` and publish only when he says it is better. Captures live in
+Last updated 2026-09-18 (night) on Max's home PC. `main` = **0.9.39**, published on Hexium
+(`Max/Immersive_Portals`); the `testing` branch (0.9.23 to 0.9.39, items 52 to 71) was merged into it after Max
+tested the run on his server: "the portal looks much better, i think we can go ahead and update hexium". Flame bloom
+is now off by default (the reworked glow pass has not been seen with bloom on). Captures live in
 `AppData\LocalLow\IronGate\Valheim\LivePortals\<world>`. On the home PC the mod is installed through Gale as the
 Hexium package (profile folder `...\BepInEx\plugins\Max-Immersive_Portals\`): to test, build and replace
 `LivePortals.dll` there (delete first: Gale hard-links). Numpad keys are OFF by default now: set `TuneKeys = true`
