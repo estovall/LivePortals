@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "Immersive Portals";
-        public const string VERSION = "0.9.40";
+        public const string VERSION = "0.9.41";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -45,6 +45,7 @@ namespace LivePortals
         internal static ConfigEntry<float> PaneForwardOffset;
         internal static ConfigEntry<bool> PaneRound;
         internal static ConfigEntry<bool> HideSwirl;
+        internal static ConfigEntry<bool> CameraThroughPortal;
         internal static ConfigEntry<PaneStyleOption> PaneStyle;
         internal static ConfigEntry<bool> TuneKeys;
         internal static ConfigEntry<bool> GlassTest;
@@ -176,6 +177,8 @@ namespace LivePortals
             PaneRound = Config.Bind("2. Window", "PaneRound", true, "Round pane (the ring's shape) instead of a square.");
             PaneStyle = Config.Bind("2. Window", "PaneStyle", PaneStyleOption.Sprite,
                 "How the picture is put in the ring. Sprite (0.9.10+): a black depth plug with the picture drawn over it after the game's screen effects, which keeps it bright at night. Emissive (0.8.12 to 0.9.9): one solid surface showing the picture as emission; the game's ambient occlusion darkens it at night, but it is the long-tested one.");
+            CameraThroughPortal = Config.Bind("2. Window", "CameraThroughPortal", true,
+                "The camera passes through a portal you stand in instead of being pushed inside the ring. The game keeps the camera out of the frame's colliders; stepping into a portal it ended up between the frame and the pane, looking at the back of the window.");
             HideSwirl = Config.Bind("2. Window", "HideSwirl", false, "Switch the game's own swirl in the ring off while the window shows. Off: the swirl plays over the picture as in vanilla.");
             // 0.9.13 to 0.9.16 hid the swirl by default (a sorting problem since solved another way); files from then say true.
             if (configVersion.Value < 3) { HideSwirl.Value = false; configVersion.Value = 3; }
@@ -285,6 +288,9 @@ namespace LivePortals
             var awake = AccessTools.Method(typeof(TeleportWorld), "Awake");
             if (awake != null) { _harmony.Patch(awake, postfix: new HarmonyMethod(typeof(Patches), nameof(Patches.TeleportWorld_Awake))); _portalsTracked = true; }
             else Log.LogWarning("LivePortals: TeleportWorld.Awake not found; portals are found by scanning the scene instead.");
+            var collide = AccessTools.Method(typeof(GameCamera), "CollideRay2");
+            if (collide != null) _harmony.Patch(collide, prefix: new HarmonyMethod(typeof(Patches), nameof(Patches.GameCamera_CollideRay2_Prefix)), postfix: new HarmonyMethod(typeof(Patches), nameof(Patches.GameCamera_CollideRay2_Postfix)));
+            else Log.LogWarning("LivePortals: GameCamera.CollideRay2 not found; the camera will collide with portals as before.");
             var create = AccessTools.Method(typeof(ZNetScene), "CreateObject", new[] { typeof(ZDO) });
             if (create != null) _harmony.Patch(create, postfix: new HarmonyMethod(typeof(Patches), nameof(Patches.ZNetScene_CreateObject)));
             else Log.LogWarning("LivePortals: ZNetScene.CreateObject not found; windows will be lit by nearby torches.");
@@ -637,6 +643,37 @@ namespace LivePortals
 
     internal static class Patches
     {
+        // ---- The camera through the portal you stand in ----
+        // The game keeps its camera out of anything in m_blockCameraMask with sphere casts from the eye; the portal's
+        // frame is in that mask, so stepping into the ring pushed the camera between frame and pane, onto the back
+        // of the window. For the casts of one frame, the colliders of any portal within reach are switched off.
+        private static readonly List<Collider> _passable = new List<Collider>();
+        private static readonly Dictionary<TeleportWorld, Collider[]> _portalColliders = new Dictionary<TeleportWorld, Collider[]>();
+
+        internal static void GameCamera_CollideRay2_Prefix()
+        {
+            _passable.Clear();
+            if (!Plugin.CameraThroughPortal.Value) return;
+            var p = Player.m_localPlayer;
+            if (p == null) return;
+            Vector3 at = p.transform.position;
+            foreach (var tw in Plugin.AllPortals())
+            {
+                if (tw == null || Vector3.Distance(tw.transform.position, at) > 4f) continue;
+                if (!_portalColliders.TryGetValue(tw, out var cols)) _portalColliders[tw] = cols = tw.GetComponentsInChildren<Collider>(true);
+                foreach (var c in cols) if (c != null && c.enabled) { c.enabled = false; _passable.Add(c); }
+            }
+            if (_passable.Count > 0) Physics.SyncTransforms();
+        }
+
+        internal static void GameCamera_CollideRay2_Postfix()
+        {
+            if (_passable.Count == 0) return;
+            foreach (var c in _passable) if (c != null) c.enabled = true;
+            _passable.Clear();
+            if (_portalColliders.Count > 64) _portalColliders.Clear();
+        }
+
         internal static void ZNetScene_CreateObject(GameObject __result)
         {
             PortalWindow.RegisterLights(__result);

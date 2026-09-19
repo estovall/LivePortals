@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.41 (TESTING: not published)
+
+- The camera passes through a portal you stand in. The game keeps its camera out of the portal frame, so stepping into the ring pushed it between the frame and the pane, looking at the back of the window. For the camera's own checks the portal's colliders are ignored while you are within reach (`CameraThroughPortal`, on); walking into the frame is unchanged.
+
 ## 0.9.40 (TESTING: not published)
 
 - A `Quality` setting with Low, Medium and High presets sets the capture and window resolution, the viewpoints, the number of windows kept and redrawn, and the background threads together. Medium is the default for new installs (512 px, two viewpoints, six windows, one redraw per frame at 30 Hz, two threads); existing configs are set to High, which is exactly what they ran before. Custom leaves the individual settings alone.

@@ -693,6 +693,14 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     (b) `Quality` presets (`Plugin.ApplyQuality`): Low 384/1 viewpoint/4 windows/20 Hz/1 thread, Medium
     512/2/6/1 redraw/30 Hz/2 threads (default for new files), High = the old defaults; ConfigVersion 6 sets
     existing files to High. Ask the complainers for version, when it stutters, PerfLog logs and specs. **Untested.**
+73. 0.9.41 testing: Max: "make the player camera not able to collide with the portal so players dont see the back
+    of it when teleporting". GameCamera.GetCameraPosition -> CollideRay2 sphere-casts against m_blockCameraMask,
+    which the frame's colliders are in. Harmony prefix/postfix on `GameCamera.CollideRay2`
+    (`Patches.GameCamera_CollideRay2_*`): colliders of portals within 4 m are disabled around the casts
+    (+ Physics.SyncTransforms), re-enabled after; the teleport trigger and walking collision are physics-step
+    matters and unaffected. Also: "constant fps issues when at all near them" (other players): no logs yet;
+    Medium preset halves the per-frame work; if their PerfLog shows window cost over ~20% of the frame, the next
+    cut is rendering pass one (sky + skirts) only every other redraw. **Untested.**
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

@@ -1,7 +1,7 @@
 {
     "name": "Immersive_Portals",
     "description": "See through your portals. Cosmetic, client-side: each trip photographs the view from a portal and its partner shows it as a window with real parallax, the live sky and time-of-day lighting. The far side is never loaded.",
-    "version_number": "0.9.40",
+    "version_number": "0.9.41",
     "website_url": "https://github.com/estovall/LivePortals",
     "dependencies": [
         "denikson-BepInExPack_Valheim-5.4.2350"
