@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.48
+
+- Fixed: standing near a portal, the window could hang beside the frame as a huge stretched oval. 0.9.46 had the pane back away from you and grow to keep filling the frame, which only looked right from straight on; from any other angle it left the frame behind. The pane stays in the frame now, and the picture dissolves away over the last half metre as the camera comes up to it, so stepping through still fades rather than cutting out.
+
 ## 0.9.47
 
 Released with everything from 0.9.40 up, tested on Max's server over 2026-09-19.
