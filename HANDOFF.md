@@ -753,6 +753,17 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     files when stored. Fix: an older stored time never replaces a shown or loading set
     (`!(stored < _capTime && (_loader != null || _set != null))`). Each spurious load rebuilt reliefs, uploaded
     textures and rebuilt 32 flame effects right after arrival: a real part of the post-trip stutter. **Untested.**
+80. 0.9.48 released 2026-09-20 (main 0698ac3, Hexium cdn.hexium.gg/upload/1300/0.9.48.zip). Max on 0.9.47:
+    screenshots of a huge smeared oval hanging beside the portal frame in the Swamp. Cause: the 0.9.46 pane
+    recession (`_recess`, pane backs away and scales up to keep filling the frame) only holds from straight on;
+    from any other angle the enlarged pane sits outside the frame and the off-axis frustum stretches the view.
+    Fix: the recession is gone entirely; instead `Refresh` fades the picture out over the last 0.45 m as the eye
+    reaches the pane (`alpha *= clamp01((d - 0.06) / 0.45)`, Hide below 0.06). Stepping through still thins out
+    rather than cutting off (the 0.9.43 complaint) and nothing leaves the frame. **Untested by Max.**
+    Open from 0.9.45's perf lines: trips still average about 50 fps over the 8 s after arriving, with single
+    frames of 100-300 ms and a few collector passes; the remaining suspects are the loader's mesh building,
+    Grass/Fire records and ReliefMesh data, none of which are pooled yet.
+
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 
