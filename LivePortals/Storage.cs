@@ -216,6 +216,26 @@ namespace LivePortals
         }
 
         /// <summary>Unix time of the stored capture for this portal, or -1 if there is none.</summary>
+        /// <summary>
+        /// Note the rotation of a portal in its stored capture, for captures taken before 0.9.49, which carry none.
+        /// A window can only be drawn without the far portal being loaded if it knows which way that ring faces, and
+        /// a trip does not always re-take the capture (RecaptureAfter), so it is written the moment the far portal
+        /// happens to be loaded: on the trip back, when you have just stood in it. Appending keeps the file valid
+        /// for anyone reading it meanwhile; a reader that misses the line simply has no rotation, as before.
+        /// </summary>
+        internal static bool RememberRotation(ZDOID id, Quaternion rot)
+        {
+            try
+            {
+                string mp = MetaPath(Dir(), Key(id));
+                if (!File.Exists(mp)) return false;
+                foreach (var line in File.ReadAllLines(mp)) if (line.StartsWith("p0.rot=")) return false;
+                File.AppendAllText(mp, "p0.rot=" + Q(rot) + Environment.NewLine);
+                return true;
+            }
+            catch (Exception e) { Plugin.Dbg("could not note the rotation of " + Key(id) + ": " + e.Message); return false; }
+        }
+
         internal static long StoredTime(ZDOID id)
         {
             string dir = Dir(), key = Key(id);

@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "Immersive Portals";
-        public const string VERSION = "0.9.49";
+        public const string VERSION = "0.9.50";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -402,6 +402,46 @@ namespace LivePortals
         private static readonly List<PortalWindow> _wanting = new List<PortalWindow>();
 
         private float _perfAt;
+        // Why portals in range are showing nothing. Logged while it is happening, a handful of times a session, so a
+        // plain log answers it: a blank window is the one thing a player notices and cannot diagnose.
+        private float _blankAt; private string _blankLast = ""; private int _blankLines;
+
+        private void ReportBlanks()
+        {
+            if (Time.time - _blankAt < 20f) return;
+            _blankAt = Time.time;
+            int unconnected = 0, noCapture = 0, loading = 0, notLoaded = 0, suppressed = 0, showing = 0;
+            for (int i = 0; i < PortalWindow.All.Count; i++)
+            {
+                var w = PortalWindow.All[i];
+                if (w == null) continue;
+                switch (w.Blank)
+                {
+                    case PortalWindow.BlankReason.Unconnected: unconnected++; break;
+                    case PortalWindow.BlankReason.NoCapture: noCapture++; break;
+                    case PortalWindow.BlankReason.Loading: loading++; break;
+                    case PortalWindow.BlankReason.PartnerNotLoaded: notLoaded++; break;
+                    case PortalWindow.BlankReason.Suppressed: suppressed++; break;
+                    default: showing++; break;
+                }
+            }
+            int blank = unconnected + noCapture + notLoaded + suppressed;
+            if (blank == 0) return;
+            var sb = new System.Text.StringBuilder();
+            sb.Append($"LivePortals: {blank} portal(s) in range show nothing ({showing} do");
+            if (noCapture > 0) sb.Append($", {noCapture} never captured");
+            if (notLoaded > 0) sb.Append($", {notLoaded} captured before 0.9.49 and the far portal is not loaded here");
+            if (suppressed > 0) sb.Append($", {suppressed} over the MaxWindows limit of {MaxWindows.Value}");
+            if (unconnected > 0) sb.Append($", {unconnected} not paired");
+            if (loading > 0) sb.Append($", {loading} still loading");
+            sb.Append(")");
+            string line = sb.ToString();
+            if (line == _blankLast && !DebugLog.Value) return;
+            if (_blankLines >= 6 && !DebugLog.Value) return;
+            _blankLast = line; _blankLines++;
+            Log.LogInfo(line);
+        }
+
         // Frame counts since start (PerfLog): the perf line and the trip report print the differences.
         private int _frames, _over33, _over100;
         private int _pFrames, _pOver33, _pOver100, _pGc; private float _pLongest;
@@ -443,6 +483,7 @@ namespace LivePortals
                 PortalWindow.PerfRenders = 0; PortalWindow.PerfMs = 0; _perfAt = Time.time;
                 _pFrames = _frames; _pOver33 = _over33; _pOver100 = _over100; _pGc = GC.CollectionCount(0); _pLongest = 0f;
             }
+            ReportBlanks();
             _wanting.Clear();
             for (int i = 0; i < PortalWindow.All.Count; i++)
             {

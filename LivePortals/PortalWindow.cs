@@ -34,6 +34,10 @@ namespace LivePortals
         }
 
         internal static readonly List<PortalWindow> All = new List<PortalWindow>();
+
+        /// <summary>Why a portal in range is showing nothing. Reported by the scheduler, so a log says which it is.</summary>
+        internal enum BlankReason { None, Unconnected, NoCapture, Loading, PartnerNotLoaded, Suppressed }
+        internal BlankReason Blank = BlankReason.None;
         internal static int DiagQueue = 2450;   // numpad +: the picture's render queue
         internal static bool DiagPlugOff;       // numpad -: the depth plug
         /// <summary>Metres beyond the visible range at which a window exists and loads its capture (see Plugin's scan).</summary>
@@ -145,7 +149,7 @@ namespace LivePortals
         internal void SetSuppressed(bool s)
         {
             _suppressed = s;
-            if (s) Hide();
+            if (s) { Blank = BlankReason.Suppressed; Hide(); }
         }
 
         private void Awake()
@@ -194,7 +198,7 @@ namespace LivePortals
 
             bool glass = Plugin.GlassTest.Value;
             ZDOID target = glass ? _nview.GetZDO().m_uid : _nview.GetZDO().GetConnectionZDOID(ZDOExtraData.ConnectionType.Portal);
-            if (target == ZDOID.None) { Hide(); return; }
+            if (target == ZDOID.None) { Blank = BlankReason.Unconnected; Hide(); return; }
             // The far portal's own network object is not needed to show its capture, and away from a hub it is
             // usually not there at all: a server sends a client only what is near it, so after logging in every
             // window whose partner lies in an unloaded zone had nothing to work from and stayed blank until the
@@ -209,6 +213,16 @@ namespace LivePortals
                 Plugin.Dbg("partner " + Storage.Key(target) + " is not loaded here; asked the server for it");
             }
             if (target != _targetId) { _targetId = target; ReleaseCapture(); _capCheckTimer = 0f; }
+            // While the far portal is loaded, note its rotation in its stored capture if that capture predates 0.9.49.
+            // Its own next capture would carry it, but a trip within RecaptureAfter does not re-take one, so without
+            // this a portal you use often could stay blank after every restart.
+            if (tz != null && _set != null && _set.Primary != null && !_set.Primary.HasRotation)
+            {
+                _set.Primary.Rotation = tz.GetRotation();
+                _set.Primary.HasRotation = true;
+                if (Storage.RememberRotation(target, _set.Primary.Rotation))
+                    Plugin.Log.LogInfo("LivePortals: noted which way " + Storage.Key(target) + " faces; that window no longer needs it loaded.");
+            }
 
             _capCheckTimer -= Time.deltaTime;
             if (_capCheckTimer <= 0f)
@@ -274,7 +288,9 @@ namespace LivePortals
                 if (wantAll && _loadedPoints < _set.AvailablePoints) _loader = CaptureLoader.Start(target, !WindowMaterial.DepthWorks, _loadedPoints, int.MaxValue);
                 else if (wantOne && _loadedPoints > 1) { _set.Trim(1); _loadedPoints = 1; BuildReliefs(); }
             }
-            if (alpha <= 0.001f || _set == null) { Hide(); return; }
+            if (alpha <= 0.001f) { Blank = BlankReason.None; Hide(); return; }
+            // -1 = looked and there is no capture stored for the partner; -2 = not looked yet.
+            if (_set == null) { Blank = _loader == null && _capTime == -1 ? BlankReason.NoCapture : BlankReason.Loading; Hide(); return; }
             EnsureBuilt(gc);
 
             // ---- Pane geometry: the ring centre sits above the portal's base along its own up axis ----
@@ -282,7 +298,7 @@ namespace LivePortals
             Quaternion rB;
             if (tz != null) rB = tz.GetRotation();
             else if (_set.Primary != null && _set.Primary.HasRotation) rB = _set.Primary.Rotation;
-            else { Hide(); return; } // a capture from before the rotation was stored, and the far portal is not loaded
+            else { Blank = BlankReason.PartnerNotLoaded; Hide(); return; } // a capture from before the rotation was stored, and the far portal is not loaded
 
             Vector3 up = rA * Vector3.up, n = rA * Vector3.forward, right = rA * Vector3.right;
             var shape = PortalShape.Of(_tw);
@@ -446,6 +462,7 @@ namespace LivePortals
                 UpdateLight(primary, c, realFront ? n : -n, tint, Dissolve.Reveal(alpha), realFront);
             }
 
+            Blank = BlankReason.None;
             _visible = true;
             ApplyVisibility();
             _pe = pe; _anchor0 = anchor0; _rB = rB; _target = target; _near = near; _far = far; _l = l; _r = r; _b = b; _t = t; _glass = glass; _realFront = realFront; _alphaNow = alpha;

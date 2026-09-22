@@ -1,7 +1,7 @@
 # Pick-up notes for LivePortals
 
 Last updated 2026-09-22 on Max's second PC. `main` = **0.9.48**, published on Hexium (`Max/Immersive_Portals`);
-the `testing` branch = **0.9.49**, one fix on top of it, not published. Everything from 0.9.23 to 0.9.48 was done on
+the `testing` branch = **0.9.50**, two fixes on top of it, not published. Everything from 0.9.23 to 0.9.48 was done on
 the home PC and is in `main` (items 52 to 80). Captures live in
 `AppData\LocalLow\IronGate\Valheim\LivePortals\<world>`. On the home PC the mod is installed through Gale as the
 Hexium package (profile folder `...\BepInEx\plugins\Max-Immersive_Portals\`): to test, build and replace
@@ -12,7 +12,7 @@ under `[6. Debug]` in `com.maxst.liveportals.cfg` for numpad 5 (dump) and 0 (cap
 
 | Change | Suspect it if | Switch it off with |
 |---|---|---|
-| 0.9.49: a window uses the capture's stored rotation when the far portal is not loaded | the far side faces the wrong way through a window (only possible with a capture taken by 0.9.49 or later) | (code: `PortalCapture.Rotation`; delete the capture to re-take it) |
+| 0.9.49/0.9.50: a window uses the capture's stored rotation when the far portal is not loaded | the far side faces the wrong way through a window | (code: `PortalCapture.Rotation`; delete the capture to re-take it) |
 | 0.9.48: the picture fades out over the last 0.45 m instead of the pane receding | stepping through looks abrupt, or the picture cuts off early | (code: `Refresh`, the alpha ramp) |
 | 0.9.39: flame bloom off by default | no glow around flames in a window | `FlameBloom = 4` |
 
@@ -772,6 +772,18 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     **Untested.** Note for Max: existing captures carry no rotation, so each pair needs one more trip; after that
     it holds through restarts. Second, separate cause of "most of the hub isnt": `MaxWindows` (4/6/8 by preset)
     caps how many windows load at once, nearest first; unchanged, it is a memory trade.
+82. 0.9.50 testing (2026-09-22). Max on 0.9.49: "still not seeing portals ive definitely have gone through".
+    0.9.49 stores the rotation at capture time only, and `RecaptureAfter` (300 s) means a trip through a portal
+    captured recently takes no new capture, so a pair used often never gained a rotation and stayed blank after
+    every restart. `Storage.RememberRotation` now appends `p0.rot=` to a stored capture the moment the far portal
+    is loaded (on the trip back you have just stood in it), for captures written before 0.9.49; the window sets
+    `HasRotation` in memory at the same time so it is a single file append. Also `PortalWindow.BlankReason` +
+    `Plugin.ReportBlanks`: every 20 s, while any window in range is blank, one Info line saying how many and why
+    (never captured / captured before 0.9.49 and the partner not loaded / over MaxWindows / not paired /
+    loading), six lines a session unless `DebugLog`. **Ask Max for that line next time rather than guessing.**
+    Ruled out while looking: portal connections do reach a client intact (ZDO.Deserialize reads the connection as
+    a real ZDOID, and `Game.ConnectPortalsCoroutine`, which clears a connection whose target is not loaded, is
+    server-only), so `GetConnectionZDOID` is sound on a client.
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 
