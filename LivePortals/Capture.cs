@@ -36,6 +36,13 @@ namespace LivePortals
         public float AverageAmbientLuminance = -1f; // the part of it lit by the sky alone; -1 when not captured
         public Color GrassGain = Color.white;       // what the window's grass is multiplied by (light, per channel); see Capture.MeasureGrassGain
         public float RingHeight;                    // height of the opening the capture was taken in, metres; 0 = not recorded
+        /// <summary>
+        /// World rotation of the portal this capture was taken at. The window needs it to put the far side where it
+        /// belongs, and it is the only thing it ever wanted from the far portal itself: with it stored here a window
+        /// works from the files alone, whether or not the far portal's network object happens to be loaded.
+        /// </summary>
+        public Quaternion Rotation = Quaternion.identity;
+        public bool HasRotation;
         public Color AverageColor = Color.white;
 
         public void Destroy()
@@ -181,6 +188,7 @@ namespace LivePortals
         public float AverageAmbientLuminance = -1f;
         public Color GrassGain = Color.white;
         public float RingHeight;
+        public Quaternion Rotation = Quaternion.identity;
         public Color AverageColor = Color.white;
         public float SkyFraction, DiffFraction, MedianDepth; // of the forward face, for the log
     }

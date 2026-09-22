@@ -200,6 +200,7 @@ namespace LivePortals
             job.Lines.Add(pre + "avgColor=" + C(pt.AverageColor));
             job.Lines.Add(pre + "grassGain=" + C(pt.GrassGain));
             job.Lines.Add(pre + "ringHeight=" + pt.RingHeight.ToString("R", CultureInfo.InvariantCulture));
+            job.Lines.Add(pre + "rot=" + Q(pt.Rotation));
         }
 
         internal static void Finish(Job job, int points, long takenAt)
@@ -312,6 +313,24 @@ namespace LivePortals
         {
             v.x.ToString("R", CultureInfo.InvariantCulture), v.y.ToString("R", CultureInfo.InvariantCulture), v.z.ToString("R", CultureInfo.InvariantCulture)
         });
+
+        private static string Q(Quaternion q) => string.Join(",", new[]
+        {
+            q.x.ToString("R", CultureInfo.InvariantCulture), q.y.ToString("R", CultureInfo.InvariantCulture),
+            q.z.ToString("R", CultureInfo.InvariantCulture), q.w.ToString("R", CultureInfo.InvariantCulture)
+        });
+
+        /// <summary>A stored rotation, or false when the line is missing or unreadable (captures from before 0.9.49).</summary>
+        internal static bool PQ(string s, out Quaternion q)
+        {
+            q = Quaternion.identity;
+            var parts = s.Split(',');
+            if (parts.Length < 4) return false;
+            var r = new Quaternion(F(parts[0]), F(parts[1]), F(parts[2]), F(parts[3]));
+            if (r.x * r.x + r.y * r.y + r.z * r.z + r.w * r.w < 0.5f) return false;
+            q = Quaternion.Normalize(r);
+            return true;
+        }
 
         internal static Color P(string s)
         {

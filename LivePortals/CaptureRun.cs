@@ -123,7 +123,7 @@ namespace LivePortals
                         Plugin.Log.LogInfo($"LivePortals: viewpoint {offsets[k]} is inside or behind something here, skipped.");
                         continue;
                     }
-                    var pt = new RawPoint { RingHeight = shape.Height, Offset = offsets[k], Res = _rig.Res, Step = _rig.Step, DepthRange = _rig.DepthRange, FaceTan = Capture.FaceTan };
+                    var pt = new RawPoint { Rotation = rot, RingHeight = shape.Height, Offset = offsets[k], Res = _rig.Res, Step = _rig.Step, DepthRange = _rig.DepthRange, FaceTan = Capture.FaceTan };
                     Lighting.Sample(out pt.Sun, out pt.Ambient, out pt.Fog, out pt.DayFraction);
                     _points.Add(pt);
                     Vector3 pos = centre + rot * offsets[k] + forward;

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.49 (TESTING)
+
+- Fixed: on a server, most of a portal hub showed nothing after logging in, and only the portals you had just travelled through were see-through. A window needed the far portal's own network object to know which way that ring faces, and a server sends a client only what is near it, so a partner sitting in an unloaded zone left the window blank however good the capture on disk was. The capture now carries the rotation of the portal it was taken at, and a window works from its files alone. Each portal pair needs one more trip for its capture to carry it; after that it holds through restarts.
+- A hub still shows at most `MaxWindows` see-through portals at once (4 / 6 / 8 by quality preset), the nearest ones first. Raise it if your hub is bigger than that and you have the video memory for it.
+
 ## 0.9.48
 
 - Fixed: standing near a portal, the window could hang beside the frame as a huge stretched oval. 0.9.46 had the pane back away from you and grow to keep filling the frame, which only looked right from straight on; from any other angle it left the frame behind. The pane stays in the frame now, and the picture dissolves away over the last half metre as the camera comes up to it, so stepping through still fades rather than cutting out.

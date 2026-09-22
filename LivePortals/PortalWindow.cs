@@ -195,11 +195,18 @@ namespace LivePortals
             bool glass = Plugin.GlassTest.Value;
             ZDOID target = glass ? _nview.GetZDO().m_uid : _nview.GetZDO().GetConnectionZDOID(ZDOExtraData.ConnectionType.Portal);
             if (target == ZDOID.None) { Hide(); return; }
+            // The far portal's own network object is not needed to show its capture, and away from a hub it is
+            // usually not there at all: a server sends a client only what is near it, so after logging in every
+            // window whose partner lies in an unloaded zone had nothing to work from and stayed blank until the
+            // next trip brought that portal into range. All the window ever took from it is the far ring's
+            // rotation, and the capture now carries that (PortalCapture.Rotation). It is still asked for, slowly,
+            // for captures taken before 0.9.49, which have no stored rotation.
             ZDO tz = ZDOMan.instance.GetZDO(target);
-            if (tz == null)
+            if (tz == null && Time.time - _lastRequest > (_set != null && _set.Primary != null && _set.Primary.HasRotation ? 10f : 1f))
             {
-                if (Time.time - _lastRequest > 1f) { _lastRequest = Time.time; ZDOMan.instance.RequestZDO(target); Plugin.Dbg("waiting for partner ZDO " + Storage.Key(target)); }
-                Hide(); return;
+                _lastRequest = Time.time;
+                ZDOMan.instance.RequestZDO(target);
+                Plugin.Dbg("partner " + Storage.Key(target) + " is not loaded here; asked the server for it");
             }
             if (target != _targetId) { _targetId = target; ReleaseCapture(); _capCheckTimer = 0f; }
 
@@ -272,7 +279,11 @@ namespace LivePortals
 
             // ---- Pane geometry: the ring centre sits above the portal's base along its own up axis ----
             Quaternion rA = transform.rotation;
-            Quaternion rB = tz.GetRotation();
+            Quaternion rB;
+            if (tz != null) rB = tz.GetRotation();
+            else if (_set.Primary != null && _set.Primary.HasRotation) rB = _set.Primary.Rotation;
+            else { Hide(); return; } // a capture from before the rotation was stored, and the far portal is not loaded
+
             Vector3 up = rA * Vector3.up, n = rA * Vector3.forward, right = rA * Vector3.right;
             var shape = PortalShape.Of(_tw);
             float w = shape.Width, h = shape.Height;

@@ -1,28 +1,20 @@
 # Pick-up notes for LivePortals
 
-Last updated 2026-09-18 (night) on Max's home PC. `main` = **0.9.39**, published on Hexium
-(`Max/Immersive_Portals`); the `testing` branch (0.9.23 to 0.9.39, items 52 to 71) was merged into it after Max
-tested the run on his server: "the portal looks much better, i think we can go ahead and update hexium". Flame bloom
-is now off by default (the reworked glow pass has not been seen with bloom on). Captures live in
+Last updated 2026-09-22 on Max's second PC. `main` = **0.9.48**, published on Hexium (`Max/Immersive_Portals`);
+the `testing` branch = **0.9.49**, one fix on top of it, not published. Everything from 0.9.23 to 0.9.48 was done on
+the home PC and is in `main` (items 52 to 80). Captures live in
 `AppData\LocalLow\IronGate\Valheim\LivePortals\<world>`. On the home PC the mod is installed through Gale as the
 Hexium package (profile folder `...\BepInEx\plugins\Max-Immersive_Portals\`): to test, build and replace
-`LivePortals.dll` there (delete first: Gale hard-links). Numpad keys are OFF by default now: set `TuneKeys = true`
+`LivePortals.dll` there (delete first: Gale hard-links). Numpad keys are OFF by default: set `TuneKeys = true`
 under `[6. Debug]` in `com.maxst.liveportals.cfg` for numpad 5 (dump) and 0 (capture); `PerfLog = true` for numbers.
 
-## What is on `testing` and unconfirmed (0.9.23, items 52 to 55)
+## Unconfirmed right now
 
-| Change | Suspect if something new breaks | Switch it off with |
+| Change | Suspect it if | Switch it off with |
 |---|---|---|
-| Nearest window redraws at most 60 times a second | parallax stepping while strafing at high fps | `MaxWindowFps = 500` |
-| Extra viewpoints loaded at half resolution | soft slivers beside near things up close | `HalfResSecondaries = false` |
-| Capture frame budget (one face per frame on slower machines) | things that move differ between faces; longer captures | `CaptureFrameBudgetMs = 100` |
-| Fire-in-view gating of the 30 Hz still redraw and the bloom pass; bloom every other redraw | flames freezing or bloom flickering when a fire is at the edge of the view | (code: `FireInView`, `RenderBloom`) |
-| Sky-light pass rendered with black fog; far pixels black in both additive layers | distance too dark at night, or fog too dark at dusk | `CaptureSkyLight = false` and recapture |
-| Grass gain measured at capture (`MeasureGrassGain`) | grass too dark by day; log line "grass here is r g b times as bright" | (code; gain 1 when the test view has no grass) |
-| Grass grows in between 24 m and 16 m | grass visibly rising | (code: `GrassSet.Draw` grow) |
-| Ring lower edges matched for big/small pairs (`ringHeight` in the meta) | far ground too high or low through mixed pairs; same-size pairs are unaffected | (code: `Refresh`, anchor0 shift) |
-
-Also unconfirmed from 0.9.22 itself: other players hidden from captures; bloom at 4; torchlight added back as 1 - t.
+| 0.9.49: a window uses the capture's stored rotation when the far portal is not loaded | the far side faces the wrong way through a window (only possible with a capture taken by 0.9.49 or later) | (code: `PortalCapture.Rotation`; delete the capture to re-take it) |
+| 0.9.48: the picture fades out over the last 0.45 m instead of the pane receding | stepping through looks abrupt, or the picture cuts off early | (code: `Refresh`, the alpha ramp) |
+| 0.9.39: flame bloom off by default | no glow around flames in a window | `FlameBloom = 4` |
 
 ## State at hand-over (read this first)
 
@@ -764,6 +756,22 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     frames of 100-300 ms and a few collector passes; the remaining suspects are the loader's mesh building,
     Grass/Fire records and ReliefMesh data, none of which are pooled yet.
 
+81. 0.9.49 testing (2026-09-22, second PC). Max: "after restarting my game or for other reasons portals stop
+    showing their other side ... only my most recently travelled portals are see through, where most of the portal
+    hub isnt". Cause, found by reading `PortalWindow.Update`: the window took `tz = ZDOMan.GetZDO(target)` and
+    hid outright when it was null, and the only thing it used `tz` for was `tz.GetRotation()` at the pane
+    geometry. A dedicated server sends a client only the ZDOs near it, so after logging in every partner in an
+    unloaded zone is null; the ones you have just travelled through are in memory, which is exactly the portals
+    Max still saw working. (`ZDOMan.RequestZDO` -> `RPC_RequestZDO` -> `ForceSendZDO` does exist and the send
+    filter `ShouldSend` would pass, so in theory it should arrive; it evidently does not help in practice, and
+    the window should not need the network for this at all.) Fix: `RawPoint.Rotation` = the portal's world
+    rotation at capture time -> meta `p<k>.rot=x,y,z,w` (`Storage.Q`/`PQ`) -> `PortalCapture.Rotation` +
+    `HasRotation`; `Update` no longer hides when `tz` is null, `rB` prefers the live ZDO and falls back to the
+    stored rotation, and only hides when neither exists (a capture from before this version). `RequestZDO` is
+    still sent, every 10 s once a stored rotation is available, every 1 s otherwise, for old captures.
+    **Untested.** Note for Max: existing captures carry no rotation, so each pair needs one more trip; after that
+    it holds through restarts. Second, separate cause of "most of the hub isnt": `MaxWindows` (4/6/8 by preset)
+    caps how many windows load at once, nearest first; unchanged, it is a memory trade.
 25. Not yet done: remove the diagnostics before 1.0 (see below; Hexium publishing is done, item 31) (`publish-mod.ps1` + `hexium-token.txt` next to it, gitignored; copy the token from
    the old PC), remove the diagnostics (`GlassTest`, glass log line) before a public release, README polish.
 

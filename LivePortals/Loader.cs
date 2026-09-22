@@ -113,6 +113,7 @@ namespace LivePortals
                         Sun = pt.Sun, Ambient = pt.Ambient, Fog = pt.Fog, DayFraction = pt.DayFraction,
                         AverageLuminance = pt.AverageLuminance, AverageLocalLuminance = pt.AverageLocalLuminance, AverageAmbientLuminance = pt.AverageAmbientLuminance,
                         AverageColor = pt.AverageColor, GrassGain = pt.GrassGain, RingHeight = pt.RingHeight,
+                        Rotation = pt.Rotation, HasRotation = true,
                     };
                     set.Captures.Add(cap);
                     set.Offsets.Add(pt.Offset);
@@ -221,6 +222,7 @@ namespace LivePortals
                     if (meta.TryGetValue(pre + "avgColor", out var ac)) cap.AverageColor = Storage.P(ac);
                     if (meta.TryGetValue(pre + "grassGain", out var gg)) cap.GrassGain = Storage.P(gg);
                     if (meta.TryGetValue(pre + "ringHeight", out var rh)) float.TryParse(rh, NumberStyles.Float, CultureInfo.InvariantCulture, out cap.RingHeight);
+                    if (meta.TryGetValue(pre + "rot", out var rq) && Storage.PQ(rq, out var rotq)) { cap.Rotation = rotq; cap.HasRotation = true; }
                     if (meta.TryGetValue(pre + "offset", out var os)) offset = Storage.PV(os);
                     set.Captures.Add(cap);
                     set.Offsets.Add(offset);
