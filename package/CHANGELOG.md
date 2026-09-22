@@ -1,13 +1,9 @@
 # Changelog
 
-## 0.9.50 (TESTING)
+## 0.9.50
 
-- 0.9.49 only helped portals captured after it was installed, and a trip does not always re-take a capture (`RecaptureAfter`), so a portal you use often could still come back blank. Whenever the far portal does happen to be loaded, which it is on the trip back, its rotation is now written into its stored capture. One trip through a pair fixes it for good, whether or not a new capture was taken.
-- The log now says why portals in range are showing nothing: never captured, captured before 0.9.49 with the far portal not loaded here, over the `MaxWindows` limit, not paired, or still loading. A few lines a session while it is happening; every time with `DebugLog`.
-
-## 0.9.49 (TESTING)
-
-- Fixed: on a server, most of a portal hub showed nothing after logging in, and only the portals you had just travelled through were see-through. A window needed the far portal's own network object to know which way that ring faces, and a server sends a client only what is near it, so a partner sitting in an unloaded zone left the window blank however good the capture on disk was. The capture now carries the rotation of the portal it was taken at, and a window works from its files alone. Each portal pair needs one more trip for its capture to carry it; after that it holds through restarts.
+- Fixed: on a server, most of a portal hub showed nothing after logging in, and only the portals you had just travelled through were see-through. A window needed the far portal's own network object to know which way that ring faces, and a server sends a client only what is near it, so a partner sitting in an unloaded zone left the window blank however good the capture on disk was. A capture now carries the rotation of the portal it was taken at, and a window works from its files alone. Captures made before this version gain it the next time the far portal is loaded, which it is on the trip back: one trip through a pair, and that pair holds through restarts.
+- The log now says why portals in range are showing nothing: never captured, the far portal not loaded here, over the `MaxWindows` limit, not paired, or still loading. A few lines a session while it is happening, every time with `DebugLog`.
 - A hub still shows at most `MaxWindows` see-through portals at once (4 / 6 / 8 by quality preset), the nearest ones first. Raise it if your hub is bigger than that and you have the video memory for it.
 
 ## 0.9.48

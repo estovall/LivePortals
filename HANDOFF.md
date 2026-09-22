@@ -1,7 +1,7 @@
 # Pick-up notes for LivePortals
 
-Last updated 2026-09-22 on Max's second PC. `main` = **0.9.48**, published on Hexium (`Max/Immersive_Portals`);
-the `testing` branch = **0.9.50**, two fixes on top of it, not published. Everything from 0.9.23 to 0.9.48 was done on
+Last updated 2026-09-22 on Max's second PC. `main` = **0.9.50**, published on Hexium (`Max/Immersive_Portals`),
+and `testing` is merged into it, so both branches agree. Everything from 0.9.23 to 0.9.48 was done on
 the home PC and is in `main` (items 52 to 80). Captures live in
 `AppData\LocalLow\IronGate\Valheim\LivePortals\<world>`. On the home PC the mod is installed through Gale as the
 Hexium package (profile folder `...\BepInEx\plugins\Max-Immersive_Portals\`): to test, build and replace
@@ -781,7 +781,7 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     (never captured / captured before 0.9.49 and the partner not loaded / over MaxWindows / not paired /
     loading), six lines a session unless `DebugLog`. **Ask Max for that line next time rather than guessing.**
     **Confirmed by Max on 2026-09-22: "much better".** The hub is see-through again after a restart. 0.9.50 is the
-    tip of `testing` and is not published; `main`/Hexium are still 0.9.48, which has this bug.
+    tip of `testing`, merged to `main` and published on Hexium as 0.9.50 the same day.
     Ruled out while looking: portal connections do reach a client intact (ZDO.Deserialize reads the connection as
     a real ZDOID, and `Game.ConnectPortalsCoroutine`, which clears a connection whose target is not loaded, is
     server-only), so `GetConnectionZDOID` is sound on a client.
