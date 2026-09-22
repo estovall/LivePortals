@@ -12,7 +12,6 @@ under `[6. Debug]` in `com.maxst.liveportals.cfg` for numpad 5 (dump) and 0 (cap
 
 | Change | Suspect it if | Switch it off with |
 |---|---|---|
-| 0.9.49/0.9.50: a window uses the capture's stored rotation when the far portal is not loaded | the far side faces the wrong way through a window | (code: `PortalCapture.Rotation`; delete the capture to re-take it) |
 | 0.9.48: the picture fades out over the last 0.45 m instead of the pane receding | stepping through looks abrupt, or the picture cuts off early | (code: `Refresh`, the alpha ramp) |
 | 0.9.39: flame bloom off by default | no glow around flames in a window | `FlameBloom = 4` |
 
@@ -781,6 +780,8 @@ drawing nothing; relief anchored on the eye; rubber-sheet streaks; backdrop dupl
     `Plugin.ReportBlanks`: every 20 s, while any window in range is blank, one Info line saying how many and why
     (never captured / captured before 0.9.49 and the partner not loaded / over MaxWindows / not paired /
     loading), six lines a session unless `DebugLog`. **Ask Max for that line next time rather than guessing.**
+    **Confirmed by Max on 2026-09-22: "much better".** The hub is see-through again after a restart. 0.9.50 is the
+    tip of `testing` and is not published; `main`/Hexium are still 0.9.48, which has this bug.
     Ruled out while looking: portal connections do reach a client intact (ZDO.Deserialize reads the connection as
     a real ZDOID, and `Game.ConnectPortalsCoroutine`, which clears a connection whose target is not loaded, is
     server-only), so `GetConnectionZDOID` is sound on a client.
