@@ -1,6 +1,27 @@
 # Pick-up notes for LivePortals
 
-Last updated 2026-09-22 on Max's second PC. `main` = **0.9.50**, published on Hexium (`Max/Immersive_Portals`),
+Last updated 2026-09-22. `main` = **0.9.51**, built on the home PC and **not yet published**: Hexium and Max's
+game are on 0.9.50, and the new DLL could not be copied into his profile because the game was running. Publish
+it, or copy `dist/LivePortals.dll` over the one in his profile once Valheim is closed.
+
+0.9.51 is one fix, worth reading before touching the camera hack or the capture triggers. Standing in a portal
+that refuses you (metal in the pack) stalled the game: the portal's teleport trigger fired fifty times a second,
+so the refusal, its message, the game's two log lines and a departure capture all ran every frame. The cause was
+ours. `Patches.GameCamera_CollideRay2_Prefix` switches a nearby portal's colliders off for the length of one
+camera check each frame, and it was switching off the teleport trigger with them; Unity counts somebody standing
+in a trigger that comes back as having just walked in. An ordinary trip hid it, because the second ask is
+refused while the first is under way, and carrying metal there is no first ask to swallow the rest. **Never
+disable a trigger collider on anything a player may be standing in.** Triggers are now skipped there and in
+`Capture.HideForCapture`; nothing is lost, since a trigger cannot block a camera, cannot be seen in a picture,
+and every ray in `Capture.cs` already passes `QueryTriggerInteraction.Ignore`. The departure capture also waits
+for the game to accept the trip (prefix records whether the player was already teleporting, postfix asks whether
+they are now), which covers refusal for metal, a boss, a global key and the trip cooldown without listing them.
+
+The evidence is worth knowing how to find again: `Player.log` in `AppData\LocalLow\IronGate\Valheim` carries the
+game's own `Teleportation TRIGGER` line, one per fire, so counting them per second says outright how often the
+trigger is going off.
+
+Previously: `main` = **0.9.50**, published on Hexium (`Max/Immersive_Portals`),
 and `testing` is merged into it, so both branches agree. Everything from 0.9.23 to 0.9.48 was done on
 the home PC and is in `main` (items 52 to 80). Captures live in
 `AppData\LocalLow\IronGate\Valheim\LivePortals\<world>`. On the home PC the mod is installed through Gale as the
