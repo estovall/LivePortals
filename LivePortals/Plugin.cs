@@ -22,7 +22,7 @@ namespace LivePortals
     {
         public const string GUID = "com.maxst.liveportals";
         public const string NAME = "Immersive Portals";
-        public const string VERSION = "0.9.50";
+        public const string VERSION = "0.9.51";
 
         internal static ManualLogSource Log;
         internal static Plugin Instance;
@@ -613,9 +613,18 @@ namespace LivePortals
         // ------------------------------------------------------------------
         // Captures
         // ------------------------------------------------------------------
+        private static TeleportWorld _departureScheduledFor;
+        private static float _departureScheduledAt = -999f;
+
         internal void ScheduleDepartureCapture(TeleportWorld portal, Player player)
         {
             if (!Enabled.Value || !CaptureOnDeparture.Value || portal == null) return;
+            // One departure is one capture. A trip lasts two seconds and this cannot be asked twice within them
+            // for honest reasons; anything that does ask is a trigger firing over and over, which is exactly
+            // what put a capture series on every frame.
+            if (portal == _departureScheduledFor && Time.time - _departureScheduledAt < 3f) return;
+            _departureScheduledFor = portal;
+            _departureScheduledAt = Time.time;
             StartCoroutine(DepartureCapture(portal, player));
         }
 
@@ -729,6 +738,13 @@ namespace LivePortals
             // waits for the earlier thread. Up to 0.9.24 it was skipped, 0.9.26 to 0.9.30 waited before rendering,
             // and by then the place was gone.
             _running.TryGetValue(id, out var previous);
+            // A capture of this portal is still rendering. Waiting for its files to be written is one thing, and
+            // below it is; rendering the same place twice at once is only twice the cost for one picture.
+            if (previous != null && !previous.Done && previous.Error == null && !previous.RenderedAll)
+            {
+                Dbg($"{why} capture skipped: {portal.name} is still being rendered");
+                yield break;
+            }
 
             CaptureRun run = null;
             for (int attempt = 0; attempt < 2; attempt++)
@@ -776,7 +792,14 @@ namespace LivePortals
             {
                 if (tw == null || Vector3.Distance(tw.transform.position, at) > 4f) continue;
                 if (!_portalColliders.TryGetValue(tw, out var cols)) _portalColliders[tw] = cols = tw.GetComponentsInChildren<Collider>(true);
-                foreach (var c in cols) if (c != null && c.enabled) { c.enabled = false; _passable.Add(c); }
+                // Never the trigger. Switching a trigger off and on again while somebody is standing in it makes
+                // Unity call OnTriggerEnter again, and the portal's trigger is the thing that asks the game to
+                // teleport you: this runs every frame, so the game was asked to teleport you every frame you
+                // stood in the ring. An ordinary trip hid it, because the second ask is refused while the first
+                // is under way. Carrying metal there is no first ask to refuse it, so the refusal, its message,
+                // the game's two log lines and our departure capture all ran fifty times a second.
+                // A trigger cannot block the camera anyway: that is what this switching off is for.
+                foreach (var c in cols) if (c != null && c.enabled && !c.isTrigger) { c.enabled = false; _passable.Add(c); }
             }
             if (_passable.Count > 0) Physics.SyncTransforms();
         }
@@ -800,12 +823,26 @@ namespace LivePortals
         }
 
         // Leaving: the player is still standing at this portal for two seconds while the screen fades.
+        //
+        // The capture waits for the game's answer rather than going off at the question. Being asked to teleport
+        // is not the same as leaving: the portal refuses you for metal in your pack, for a boss abroad, for a
+        // global key, and the player refuses a second trip inside the cooldown. Whatever the reason, nobody is
+        // going anywhere and there is nothing to capture. The one thing all of them have in common is that the
+        // player is not teleporting afterwards, so that is what is asked, and it needs no list of reasons to
+        // keep up to date with the game's.
         [HarmonyPatch(typeof(TeleportWorld), nameof(TeleportWorld.Teleport))]
         [HarmonyPrefix]
-        private static void TeleportWorld_Teleport(TeleportWorld __instance, Player player)
+        private static void TeleportWorld_Teleport_Pre(Player player, out bool __state)
         {
-            if (player == null || player != Player.m_localPlayer || player.IsTeleporting()) return;
-            if (!__instance.TargetFound()) return;
+            __state = player != null && player.IsTeleporting();
+        }
+
+        [HarmonyPatch(typeof(TeleportWorld), nameof(TeleportWorld.Teleport))]
+        [HarmonyPostfix]
+        private static void TeleportWorld_Teleport_Post(TeleportWorld __instance, Player player, bool __state)
+        {
+            if (player == null || player != Player.m_localPlayer) return;
+            if (__state || !player.IsTeleporting()) return;   // already going, or refused
             Plugin.Instance?.ScheduleDepartureCapture(__instance, player);
         }
 

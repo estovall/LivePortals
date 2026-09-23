@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.51
+
+- Fixed the stall when a portal refuses you. Standing in a portal carrying metal made the game ask the portal to teleport you fifty times a second, refuse fifty times a second, and start a capture of the place each time. The cause was ours: to keep the game's camera from being pushed onto the back of the picture, this mod switches a nearby portal's colliders off for the length of one camera check each frame, and it was switching off the portal's teleport trigger with them. A trigger switched back on while somebody is standing in it counts them as having just walked in. Triggers are now left alone, by the camera check and by captures alike; a trigger cannot block a camera or be seen in a picture, so nothing is lost.
+- A departure is captured when the game accepts the trip, not when the portal is asked for one, so a refusal of any kind costs nothing. One departure is one capture, and a portal already being rendered is never rendered twice at once.
+
 ## 0.9.50
 
 - Fixed: on a server, most of a portal hub showed nothing after logging in, and only the portals you had just travelled through were see-through. A window needed the far portal's own network object to know which way that ring faces, and a server sends a client only what is near it, so a partner sitting in an unloaded zone left the window blank however good the capture on disk was. A capture now carries the rotation of the portal it was taken at, and a window works from its files alone. Captures made before this version gain it the next time the far portal is loaded, which it is on the trip back: one trip through a pair, and that pair holds through restarts.

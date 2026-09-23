@@ -1190,7 +1190,7 @@ namespace LivePortals
                 if (pl == null) continue;
                 foreach (var r in pl.GetComponentsInChildren<Renderer>(false)) if (r.enabled) { r.enabled = false; hidden.Add(r); }
                 foreach (var l in pl.GetComponentsInChildren<Light>(false)) if (l.enabled) { l.enabled = false; hiddenLights.Add(l); }
-                foreach (var c in pl.GetComponentsInChildren<Collider>(false)) if (c.enabled) { c.enabled = false; hiddenColliders.Add(c); }
+                foreach (var c in pl.GetComponentsInChildren<Collider>(false)) if (c.enabled && !c.isTrigger) { c.enabled = false; hiddenColliders.Add(c); }
             }
             if (portal != null)
             {
@@ -1198,14 +1198,17 @@ namespace LivePortals
                 // the ring. The pane covers the ring at the other end anyway.
                 foreach (var r in portal.GetComponentsInChildren<Renderer>(false)) if (r.enabled) { r.enabled = false; hidden.Add(r); }
                 foreach (var l in portal.GetComponentsInChildren<Light>(false)) if (l.enabled) { l.enabled = false; hiddenLights.Add(l); }
-                foreach (var c in portal.GetComponentsInChildren<Collider>(false)) if (c.enabled) { c.enabled = false; hiddenColliders.Add(c); }
+                // Not the triggers: a hidden one comes back as a fresh entry for whoever is standing in it, and
+                // the portal's trigger asks the game to teleport them. Nothing here can see a trigger anyway --
+                // the camera does not draw them and every ray in this file ignores them.
+                foreach (var c in portal.GetComponentsInChildren<Collider>(false)) if (c.enabled && !c.isTrigger) { c.enabled = false; hiddenColliders.Add(c); }
             }
             // Hugin and Munin like to perch on portals, right next to the capture point.
             foreach (var raven in Object.FindObjectsByType<Raven>(FindObjectsSortMode.None))
             {
                 if (portal != null && Vector3.Distance(raven.transform.position, portal.transform.position) > 12f) continue;
                 foreach (var r in raven.GetComponentsInChildren<Renderer>(false)) if (r.enabled) { r.enabled = false; hidden.Add(r); }
-                foreach (var c in raven.GetComponentsInChildren<Collider>(false)) if (c.enabled) { c.enabled = false; hiddenColliders.Add(c); }
+                foreach (var c in raven.GetComponentsInChildren<Collider>(false)) if (c.enabled && !c.isTrigger) { c.enabled = false; hiddenColliders.Add(c); }
             }
             // Particles (flames, smoke, sparks, mist, snow, falling leaves) have no depth: they would be painted onto
             // whatever wall or hill lies behind them, once per viewpoint, and smeared from any other angle. A torch
