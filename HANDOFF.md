@@ -1,8 +1,9 @@
 # Pick-up notes for LivePortals
 
-Last updated 2026-09-22. `main` = **0.9.51**, built on the home PC and **not yet published**: Hexium and Max's
-game are on 0.9.50, and the new DLL could not be copied into his profile because the game was running. Publish
-it, or copy `dist/LivePortals.dll` over the one in his profile once Valheim is closed.
+Last updated 2026-09-26. `main` = **0.9.51**, published on Hexium at Max's word
+(`https://cdn.hexium.gg/upload/1300/0.9.51.zip`) and installed in his Flotilla profile. The package page still
+shows 0.9.50 as the latest: that is Hexium's listing lag, not a failed upload, so **check the CDN zip and the
+submission's own answer rather than the listing** before publishing anything again.
 
 0.9.51 is one fix, worth reading before touching the camera hack or the capture triggers. Standing in a portal
 that refuses you (metal in the pack) stalled the game: the portal's teleport trigger fired fifty times a second,
